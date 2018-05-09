@@ -1,0 +1,1 @@
+Convert all GXML pathway files to an interactome. 
