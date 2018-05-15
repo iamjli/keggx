@@ -107,7 +107,7 @@ class KEGGeractome:
 			
 
 
-KEGGeractome("/Users/jonathanli/Documents/research/projects/KEGGeractome/data/human_KGML/hsa05203.xml")
+KEGGeractome("../data/human_KGML/hsa05203.xml")
 
 
 
