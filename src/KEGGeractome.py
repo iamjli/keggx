@@ -52,7 +52,7 @@ class KEGGeractome:
 	def _edge_attributes_from_PP_relation(self, relation): 
 
 		# directed, sign, 
-		edge_attributes = {
+		edge_attributes = { 
 			"node1": int(relation.get("entry1")),
 			"node2": int(relation.get("entry2")),
 			"type": relation.get("type"),  # ECrel, PPrel, GErel, PCrel, maplink
@@ -101,6 +101,40 @@ class KEGGeractome:
 
 		return edge_attributes
 
+	def _replace_group_edges(self, edge_attributes_df, group_obj):
+
+		for group in self.complex_attributes: 
+
+			print(group)
+
+		
+		group_id = group_obj["id"] 
+		group_members = group_obj["components"]
+		n_members = len(group_members)
+		initial_length = len(edge_attributes_df)
+		
+		# Split into two dataframes based on `node1` column
+		edges_without_df, edges_with_df = [x for _, x in edge_attributes_df.groupby(edge_attributes_df['node1'] == group_id)]
+		# Duplicate rows where `node1` contains the `group_id`
+		expanded_edges_df = pd.concat([edges_with_df]*n_members).sort_index() 
+		# Replace `node` column with repeating list of `group_members`
+		expanded_edges_df["node1"] = group_members*len(edges_with_df)
+		# Concatenate the new dataframes and reset index
+		edge_attributes_df = pd.concat([expanded_edges_df, edges_without_df]).reset_index(drop=True)
+		
+		# Do the same procedure with `node2` column
+		edges_without_df, edges_with_df = [x for _, x in edge_attributes_df.groupby(edge_attributes_df['node2'] == group_id)]
+		expanded_edges_df = pd.concat([edges_with_df]*n_members).sort_index() 
+		expanded_edges_df["node2"] = group_members*len(edges_with_df)
+		edge_attributes_df = pd.concat([expanded_edges_df, edges_without_df]).reset_index(drop=True)
+		
+		# Add edges between group members. `sign` will implicity be assigned 0 to indicate no directionality. 
+		group_rows = [{"node1": a, "node2": b, "type":"complex"} for a,b in combinations(group_members, 2)]
+		edge_attributes_df = edge_attributes_df.append(group_rows, ignore_index=True).fillna(0)
+		
+		print("{} members in group {}. {} edges added.".format(n_members, group_id, len(edge_attributes_df)-initial_length))
+			
+		return edge_attributes_df	
 
 
 
