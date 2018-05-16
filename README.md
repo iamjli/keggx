@@ -1,1 +1,1 @@
-Convert all GXML pathway files to an interactome. 
+Convert all KGML pathway files to an interactome. 

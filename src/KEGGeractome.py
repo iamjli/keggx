@@ -158,17 +158,19 @@ class KEGGeractome:
 		return graph, digraph
 
 
-
 	def get_edges_from_protein_list(self, proteins): 
 
 		subgraph = self.graph.subgraph(proteins)
 		subgraph_edges = subgraph.edges(data=True)
 
-		for _,_,attr in subgraph_edges: 
-			attr["pathway_id"] = self.number
+		# for _,_,attr in subgraph_edges: 
+		# 	attr["pathway_id"] = self.number
 
 		return subgraph_edges
 
+	def get_path_between_proteins(self, protein1, protein2, max_len=2): 
+
+		pass
 
 
 
