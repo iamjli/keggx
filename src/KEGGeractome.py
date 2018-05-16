@@ -28,7 +28,7 @@ class KEGGeractome:
 
 		self._replace_group_edges()
 
-		self.graph = self._generate_graph_from_attributes()
+		self.graph, self.digraph = self._generate_graph_from_attributes()
 
 
 	## Parse KGML entries
@@ -134,12 +134,28 @@ class KEGGeractome:
 
 	def _generate_graph_from_attributes(self): 
 
-		graph = nx.Graph() 
-		graph.add_nodes_from([(key, dic) for key, dic in self.node_attributes_df.to_dict("index").items()])
-		graph.add_edges_from([(row["node1"], row["node2"], row[[col for col in self.edge_attributes_df.columns if not col.startswith("node")]].to_dict()) for _,row in self.edge_attributes_df.iterrows()])
+		# Get node dataframe as a list of dictionaries keyed by node
+		nodes_keyed_by_node = [(key, dic) for key, dic in self.node_attributes_df.to_dict("index").items()]
+		# Get edge dataframe as a list of dictionaries keyed by nodes. In order to accomodate forward and reverse edges associated 
+		# with undirected edges, we filter for edges that are undirected, then append their reverse direction to the list
+		edge_attribute_columns = [col for col in self.edge_attributes_df.columns if not col.startswith("node")]
+		directed_edges_keyed_by_nodes = [(row["node1"], row["node2"], row[edge_attribute_columns].to_dict()) for _,row in self.edge_attributes_df.iterrows()]
+		reversed_edges_keyed_by_nodes = [(row["node2"], row["node1"], row[edge_attribute_columns].to_dict()) for _,row in self.edge_attributes_df.iterrows() if row["oriented"] == 0]
+		all_edges_keyed_by_nodes = [*directed_edges_keyed_by_nodes, *reversed_edges_keyed_by_nodes]
+
+		# Create undirected graph. 
+		graph = nx.Graph()
+		graph.add_nodes_from(nodes_keyed_by_node)
+		graph.add_edges_from(directed_edges_keyed_by_nodes)
 		nx.relabel_nodes(graph, {node_id: graph.node[node_id]["first_name"] for node_id in graph.nodes()}, copy=False)
 
-		return graph
+		# Create directed graph. 
+		digraph = nx.DiGraph()
+		digraph.add_nodes_from(nodes_keyed_by_node)
+		digraph.add_edges_from(all_edges_keyed_by_nodes)
+		nx.relabel_nodes(digraph, {node_id: digraph.node[node_id]["first_name"] for node_id in digraph.nodes()}, copy=False)
+
+		return graph, digraph
 
 
 
