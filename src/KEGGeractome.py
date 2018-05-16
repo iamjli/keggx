@@ -15,15 +15,16 @@ class KEGGeractome:
 		self.root = ET.parse(KGML_file).getroot()
 
 		self.node_attributes = [self._node_attribute_from_gene_entry(entry) for entry in self.root.findall("entry") if entry.get("type") == "gene"]
+		self.node_attributes_df = pd.DataFrame(self.node_attributes).set_index("id")
 		self.complex_attributes = [self._complex_attributes_from_group_entry(entry) for entry in self.root.findall("entry") if entry.get("type") == "group"]
-
-		node_attributes_df = pd.DataFrame(self.node_attributes).set_index("id")
-		print(node_attributes_df.head())
 
 		self.edge_attributes = [self._edge_attributes_from_PP_relation(relation) for relation in self.root.findall("relation") if relation.get("type") in ["PPrel", "PCrel"]]
 		self.edge_attributes_df = pd.DataFrame(self.edge_attributes)
 
 		self._replace_group_edges()
+
+		self.graph = self._generate_graph_from_attributes()
+
 
 
 		print(self.edge_attributes_df.head())
@@ -104,6 +105,7 @@ class KEGGeractome:
 
 		return edge_attributes
 
+
 	def _replace_group_edges(self):
 
 		for group_obj in self.complex_attributes: 
@@ -129,6 +131,25 @@ class KEGGeractome:
 			print("{} members in group {}. {} edges added.".format(n_members, group_id, len(self.edge_attributes_df)-n_edges))
 
 
+	def _generate_graph_from_attributes(self): 
+
+		graph = nx.Graph() 
+		graph.add_nodes_from([(key, dic) for key, dic in self.node_attributes_df.to_dict("index").items()])
+		graph.add_edges_from([(row["node1"], row["node2"], row[[col for col in self.edge_attributes_df.columns if not col.startswith("node")]].to_dict()) for _,row in self.edge_attributes_df.iterrows()])
+		nx.relabel_nodes(graph, {node_id: graph.node[node_id]["first_name"] for node_id in graph.nodes()}, copy=False)
+
+		return graph
+
+
+	def get_edges_from_protein_list(self, proteins): 
+
+		subgraph = self.graph.subgraph(proteins)
+		subgraph_edges = subgraph.edges(data=True)
+
+		for _,_,attr in subgraph_edges: 
+			attr["pathway_id"] = self.root.get("number")
+
+		return subgraph_edges
 
 			
 
