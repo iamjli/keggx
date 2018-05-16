@@ -21,9 +21,12 @@ class KEGGeractome:
 		print(node_attributes_df.head())
 
 		self.edge_attributes = [self._edge_attributes_from_PP_relation(relation) for relation in self.root.findall("relation") if relation.get("type") in ["PPrel", "PCrel"]]
-		edge_attributes_df = pd.DataFrame(self.edge_attributes)
+		self.edge_attributes_df = pd.DataFrame(self.edge_attributes)
 
-		print(edge_attributes_df.head())
+		self._replace_group_edges()
+
+
+		print(self.edge_attributes_df.head())
 
 
 	## Parse KGML entries
@@ -69,11 +72,11 @@ class KEGGeractome:
 			interaction = element.get("name")
 
 			if interaction in ["activation", "expression", "indirect effect"]: 
-				edge_attributes["sign"] = 1
+				edge_attributes["activation"] = 1
 			elif interaction in ["inhibition", "repression"]: 
-				edge_attributes["sign"] = -1
+				edge_attributes["activation"] = -1
 			elif interaction in ["binding/association"]: 
-				edge_attributes["sign"] = 0
+				edge_attributes["activation"] = 0
 				edge_attributes["oriented"] = 0
 
 			elif interaction == "phosphorylation": 
@@ -93,55 +96,44 @@ class KEGGeractome:
 			# Force edge through compound node. Unfortunately, these interactions are poorly annotated in KGML.
 			# These should be of type "ECrel", but may be mistakenly annotated as "PPrel" in KGMLs.
 			elif interaction == "compound": 
-				edge1 = {"node1": edge_attributes["node1"], "node2": int(attribute.get("value")), "type": "PPrel"}
-				edge2 = {"node2": edge_attributes["node2"], "node2": int(attribute.get("value")), "type": "PPrel"}
+				edge1 = {"node1": edge_attributes["node1"], "node2": int(element.get("value")), "type": "PPrel"}
+				edge2 = {"node2": edge_attributes["node2"], "node2": int(element.get("value")), "type": "PPrel"}
 
 			else: 
 				pass
 
 		return edge_attributes
 
-	def _replace_group_edges(self, edge_attributes_df, group_obj):
+	def _replace_group_edges(self):
 
-		for group in self.complex_attributes: 
+		for group_obj in self.complex_attributes: 
+			group_id = group_obj["id"] 
+			group_members = group_obj["components"]
+			n_members, n_edges = len(group_members), len(self.edge_attributes_df)
 
-			print(group)
-
+			# Add edges where `node1` or `node2` is a group member
+			for node_type in ["node1", "node2"]: 
+				edges_with_df = self.edge_attributes_df[self.edge_attributes_df[node_type] == group_id]
+				edges_without_df = self.edge_attributes_df[self.edge_attributes_df[node_type] != group_id]
+				# Duplicate rows where `node1` contains the `group_id`
+				expanded_edges_df = pd.concat([edges_with_df]*n_members).sort_index() 
+				# Replace `node` column with repeating list of `group_members`
+				expanded_edges_df[node_type] = group_members*len(edges_with_df)
+				# Concatenate the new dataframes and reset index
+				self.edge_attributes_df = pd.concat([expanded_edges_df, edges_without_df]).reset_index(drop=True)
 		
-		group_id = group_obj["id"] 
-		group_members = group_obj["components"]
-		n_members = len(group_members)
-		initial_length = len(edge_attributes_df)
+			# Add edges *between* group members. `sign` will implicity be assigned 0 to indicate no directionality. 
+			group_rows = [{"node1": a, "node2": b, "type": "complex", "activation": 0, "oriented": 0} for a,b in combinations(group_members, 2)]
+			self.edge_attributes_df = self.edge_attributes_df.append(pd.DataFrame(group_rows), ignore_index=True).fillna(0)
 		
-		# Split into two dataframes based on `node1` column
-		edges_without_df, edges_with_df = [x for _, x in edge_attributes_df.groupby(edge_attributes_df['node1'] == group_id)]
-		# Duplicate rows where `node1` contains the `group_id`
-		expanded_edges_df = pd.concat([edges_with_df]*n_members).sort_index() 
-		# Replace `node` column with repeating list of `group_members`
-		expanded_edges_df["node1"] = group_members*len(edges_with_df)
-		# Concatenate the new dataframes and reset index
-		edge_attributes_df = pd.concat([expanded_edges_df, edges_without_df]).reset_index(drop=True)
-		
-		# Do the same procedure with `node2` column
-		edges_without_df, edges_with_df = [x for _, x in edge_attributes_df.groupby(edge_attributes_df['node2'] == group_id)]
-		expanded_edges_df = pd.concat([edges_with_df]*n_members).sort_index() 
-		expanded_edges_df["node2"] = group_members*len(edges_with_df)
-		edge_attributes_df = pd.concat([expanded_edges_df, edges_without_df]).reset_index(drop=True)
-		
-		# Add edges between group members. `sign` will implicity be assigned 0 to indicate no directionality. 
-		group_rows = [{"node1": a, "node2": b, "type":"complex"} for a,b in combinations(group_members, 2)]
-		edge_attributes_df = edge_attributes_df.append(group_rows, ignore_index=True).fillna(0)
-		
-		print("{} members in group {}. {} edges added.".format(n_members, group_id, len(edge_attributes_df)-initial_length))
-			
-		return edge_attributes_df	
+			print("{} members in group {}. {} edges added.".format(n_members, group_id, len(self.edge_attributes_df)-n_edges))
 
 
 
 			
 
 
-KEGGeractome("../data/human_KGML/hsa05203.xml")
+KEGGeractome("../data/human_KGML/hsa04810.xml")
 
 
 
