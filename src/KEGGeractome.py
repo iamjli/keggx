@@ -12,22 +12,23 @@ class KEGGeractome:
 
 	def __init__(self, KGML_file):
 
-		self.root = ET.parse(KGML_file).getroot()
+		self.root   = ET.parse(KGML_file).getroot()
+		self.name   = self.root.get("name") 
+		self.org    = self.root.get("org") 
+		self.number = self.root.get("number")
+		self.title  = self.root.get("title") 
+		self.link   = self.root.get("link")
 
-		self.node_attributes = [self._node_attribute_from_gene_entry(entry) for entry in self.root.findall("entry") if entry.get("type") == "gene"]
+		self.node_attributes    = [self._node_attribute_from_gene_entry(entry) for entry in self.root.findall("entry") if entry.get("type") == "gene"]
 		self.node_attributes_df = pd.DataFrame(self.node_attributes).set_index("id")
 		self.complex_attributes = [self._complex_attributes_from_group_entry(entry) for entry in self.root.findall("entry") if entry.get("type") == "group"]
 
-		self.edge_attributes = [self._edge_attributes_from_PP_relation(relation) for relation in self.root.findall("relation") if relation.get("type") in ["PPrel", "PCrel"]]
+		self.edge_attributes    = [self._edge_attributes_from_PP_relation(relation) for relation in self.root.findall("relation") if relation.get("type") in ["PPrel", "PCrel"]]
 		self.edge_attributes_df = pd.DataFrame(self.edge_attributes)
 
 		self._replace_group_edges()
 
 		self.graph = self._generate_graph_from_attributes()
-
-
-
-		print(self.edge_attributes_df.head())
 
 
 	## Parse KGML entries
@@ -128,7 +129,7 @@ class KEGGeractome:
 			group_rows = [{"node1": a, "node2": b, "type": "complex", "activation": 0, "oriented": 0} for a,b in combinations(group_members, 2)]
 			self.edge_attributes_df = self.edge_attributes_df.append(pd.DataFrame(group_rows), ignore_index=True).fillna(0)
 		
-			print("{} members in group {}. {} edges added.".format(n_members, group_id, len(self.edge_attributes_df)-n_edges))
+			# print("{} members in group {}. {} edges added.".format(n_members, group_id, len(self.edge_attributes_df)-n_edges))
 
 
 	def _generate_graph_from_attributes(self): 
@@ -141,20 +142,17 @@ class KEGGeractome:
 		return graph
 
 
+
 	def get_edges_from_protein_list(self, proteins): 
 
 		subgraph = self.graph.subgraph(proteins)
 		subgraph_edges = subgraph.edges(data=True)
 
 		for _,_,attr in subgraph_edges: 
-			attr["pathway_id"] = self.root.get("number")
+			attr["pathway_id"] = self.number
 
 		return subgraph_edges
 
-			
-
-
-KEGGeractome("../data/human_KGML/hsa04810.xml")
 
 
 
