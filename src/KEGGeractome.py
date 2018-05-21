@@ -19,6 +19,8 @@ class KEGGeractome:
 		self.title  = self.root.get("title") 
 		self.link   = self.root.get("link")
 
+		# This method of selecting nodes only finds `genes` and may result in missing 
+		# interaction between nodes connected via a non-gene or non-compound node.
 		self.node_attributes    = [self._node_attribute_from_gene_entry(entry) for entry in self.root.findall("entry") if entry.get("type") == "gene"]
 		self.node_attributes_df = pd.DataFrame(self.node_attributes).set_index("id")
 		self.complex_attributes = [self._complex_attributes_from_group_entry(entry) for entry in self.root.findall("entry") if entry.get("type") == "group"]
@@ -158,19 +160,33 @@ class KEGGeractome:
 		return graph, digraph
 
 
-	def get_edges_from_protein_list(self, proteins): 
+	# def get_edges_from_protein_list(self, proteins): 
+
+	# 	subgraph = self.graph.subgraph(proteins)
+	# 	subgraph_edges = subgraph.edges(data=True)
+
+	# 	# for _,_,attr in subgraph_edges: 
+	# 	# 	attr["pathway_id"] = self.number
+
+	# 	return subgraph_edges
+
+	def get_edges_from_protein_list_as_dataframe(self, proteins): 
 
 		subgraph = self.graph.subgraph(proteins)
 		subgraph_edges = subgraph.edges(data=True)
 
-		# for _,_,attr in subgraph_edges: 
-		# 	attr["pathway_id"] = self.number
+		if len(subgraph_edges) > 0: 
+			# First generate dataframe of node symbols, then merge with node attributes dataframe
+			node_symbols_df = pd.DataFrame([[edge[0], edge[1]] for edge in subgraph_edges], columns=["source", "target"])
+			node_attributes_df = pd.DataFrame([edge[2] for edge in subgraph_edges])
+			return pd.concat([node_symbols_df, node_attributes_df], axis=1)
 
-		return subgraph_edges
+		else:
+			return None
 
-	def get_path_between_proteins(self, protein1, protein2, max_len=2): 
+	# def get_path_between_proteins(self, protein1, protein2, max_len=2): 
 
-		pass
+		
 
 
 
