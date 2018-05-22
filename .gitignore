@@ -1,6 +1,9 @@
 # Data
 data/
 
+# Testing notebooks
+scripts/test*.ipynb
+
 # Hidden files
 */.ipynb_checkpoints/*
 */.DS_Store
