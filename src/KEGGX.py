@@ -26,7 +26,7 @@ class KEGGX:
 		self.relations = self.root.findall('relation')
 
 
-		self.group_attributes = self._get_group_attributes()
+		self.group_attributes   = self._get_group_attributes()
 		self.node_attributes_df = self._get_node_attributes_as_dataframe()
 		self.edge_attributes_df = self._get_edge_attributes_as_dataframe()
 
@@ -182,6 +182,7 @@ class KEGGX:
 			elif interaction == 'methylation': 									edge_attributes.update({ 'methylation':      1, 'oriented': 1 })
 
 			elif interaction == 'compound':										pass
+			elif interaction == 'complex': 										edge_attributes.update({ 'activation': 		 1, 'oriented': 0 }) # complex proteins activate each other bidirectionally
 			else: 																pass
 
 		return edge_attributes
@@ -205,8 +206,8 @@ class KEGGX:
 				# Concatenate the new dataframes and reset index
 				edge_attributes_df = pd.concat([expanded_edges_df, edges_without_df]).reset_index(drop=True)
 		
-			# Add edges *between* group members.
-			group_rows = [ self._populate_edge_attribute(a, b, 'PComplex', []) for a,b in combinations(group_members, 2) ]
+			# Add edges *between* group members. 
+			group_rows = [ self._populate_edge_attribute(a, b, 'PComplex', ['complex']) for a,b in combinations(group_members, 2) ]
 			edge_attributes_df = edge_attributes_df.append(pd.DataFrame(group_rows), ignore_index=True).fillna(0)
 		
 		return edge_attributes_df
@@ -217,10 +218,18 @@ class KEGGX:
 	## Create graphs
 	#####
 
-	def output_KGML_as_networkx(self): 
+	def output_KGML_as_networkx(self, directed=False): 
 
-		graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True)
-		nx.set_node_attributes(graph, pathway.node_attributes_df.set_index('id').to_dict('index'))
+		if directed: 
+			reverse_edges_df = self.edge_attributes_df[self.edge_attributes_df['oriented'] == 0].rename(columns={'source': 'target', 'target': 'source'})
+			bidirected_edge_attributes_df = pd.concat([self.edge_attributes_df, reverse_edges_df])
+
+			graph = nx.from_pandas_edgelist(bidirected_edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+			nx.set_node_attributes(graph, self.node_attributes_df.set_index('id').to_dict('index'))
+
+		else: 
+			graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True)
+			nx.set_node_attributes(graph, self.node_attributes_df.set_index('id').to_dict('index'))
 
 		return graph
 
