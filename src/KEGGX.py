@@ -174,7 +174,7 @@ class KEGGX:
 
 		# 1 if source activates target, -1 if target activates source, 0 if unknown (ie. oriented==0)
 		# 1 if orientation of arrow is known, 0 otherwise. This may be extraneuous
-		edge_attributes = { 'source': source, 'target': target, 'type': edge_type, 'activation': 0, 'oriented': 0, 'indirect': 0, 'phosphorylation': 0, 'glycosylation': 0, 'ubiquitination': 0, 'methylation': 0 }
+		edge_attributes = { 'source': source, 'target': target, 'type': edge_type, 'activation': 0, 'oriented': 0, 'indirect': 0, 'modification': "" }
 
 		for interaction in interactions: 
 			if   interaction in ['activation', 'expression']:	edge_attributes.update({ 'activation':  1, 'oriented': 1 })
@@ -183,11 +183,11 @@ class KEGGX:
 
 			elif interaction == 'indirect effect': 				edge_attributes.update({ 'indirect': 1 })
 
-			elif interaction == 'phosphorylation': 				edge_attributes.update({ 'phosphorylation':  1, 'oriented': 1 })
-			elif interaction == 'dephosphorylation': 			edge_attributes.update({ 'phosphorylation': -1, 'oriented': 1 })				
-			elif interaction == 'glycosylation': 				edge_attributes.update({ 'glycosylation':    1, 'oriented': 1 })
-			elif interaction == 'ubiquitination': 				edge_attributes.update({ 'ubiquitination':   1, 'oriented': 1 })
-			elif interaction == 'methylation': 					edge_attributes.update({ 'methylation':      1, 'oriented': 1 })
+			elif interaction == 'phosphorylation': 				edge_attributes.update({ 'modification': "+p", 'oriented': 1 })
+			elif interaction == 'dephosphorylation': 			edge_attributes.update({ 'modification': "-p", 'oriented': 1 })				
+			elif interaction == 'glycosylation': 				edge_attributes.update({ 'modification': "+g", 'oriented': 1 })
+			elif interaction == 'ubiquitination': 				edge_attributes.update({ 'modification': "+u", 'oriented': 1 })
+			elif interaction == 'methylation': 					edge_attributes.update({ 'modification': "+m", 'oriented': 1 })
 
 			elif interaction == 'compound':						pass
 			elif interaction == 'complex': 						edge_attributes.update({ 'activation': 1, 'oriented': 0 }) # complex proteins activate each other bidirectionally
@@ -230,12 +230,14 @@ class KEGGX:
 
 	def output_KGML_as_graphml(self, path): 
 
+		# Initialize graph from `edge_attributes_df`
 		graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
 
+		# Retrieve graphics attributes (ie. position, shape, color, etc.)
 		node_graphics_attributes = {}
 
 		for entry in self.entries: 
-			# Retrieve graphics attributes (ie. position, shape, color, etc.) and rename some keys
+			# Fetch and rename graphics attributes
 			node_graphics_attribute = entry.find('graphics').attrib
 			node_graphics_attribute['aliases'] = node_graphics_attribute.pop('name', None)
 			node_graphics_attribute['shape']   = node_graphics_attribute.pop('type', None)
@@ -246,12 +248,13 @@ class KEGGX:
 		nx.set_node_attributes(graph, { key:attrib for key,attrib in node_graphics_attributes.items() if key in graph.nodes() })
 		# Set rest of the node attributes
 		nx.set_node_attributes(graph, self.node_attributes_df.set_index('id').to_dict('index'))
-
+		# Relabel so nodes are keyed by gene and compound symbols
 		nx.relabel_nodes(graph, {node_id: graph.node[node_id]['name'] for node_id in graph.nodes()}, copy=False)
 
 		nx.write_graphml(graph, path)
 
 		return graph
+
 
 
 	def output_KGML_as_networkx(self, directed=False, graphics=True): 
@@ -266,36 +269,12 @@ class KEGGX:
 		else: 
 			graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True)
 
-		# Handle graphics
-		if graphics: 
-
-			node_graphics_attributes = {}
-
-			for entry in self.entries: 
-				# Retrieve graphics attributes (ie. position, shape, color, etc.) and rename some keys
-				node_graphics_attribute = entry.find('graphics').attrib
-				node_graphics_attribute['aliases'] = node_graphics_attribute.pop('name', None)
-				node_graphics_attribute['shape']   = node_graphics_attribute.pop('type', None)
-
-				node_graphics_attributes[int(entry.get('id'))] = node_graphics_attribute
-
-			nx.set_node_attributes(graph, { key:attrib for key,attrib in node_graphics_attributes.items() if key in graph.nodes() })
-
-			# nx.set_node_attributes(graph, { int(entry.get('id')): entry.find('graphics').attrib for entry in self.entries if int(entry.get('id')) in graph.nodes() })
-
-
 		nx.set_node_attributes(graph, self.node_attributes_df.set_index('id').to_dict('index'))
 
 		nx.relabel_nodes(graph, {node_id: graph.node[node_id]['name'] for node_id in graph.nodes()}, copy=False)
 
 		return graph
 
-
-
-	# def add key symbols to dataframes
-	# def create graphs
-
-	# def function to add edges or nodes with optional inputs
 
 	def __str__(self): 
 
