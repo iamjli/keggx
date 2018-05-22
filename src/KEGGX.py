@@ -48,8 +48,6 @@ class KEGGX:
 				node_attribute = {
 					'node_type': entry_type, 									# i.e. 'gene'
 					'id': int(entry.get('id')), 							# i.e. 84
-					# 'aliases': entry[0].get('name'), 						# i.e. 'ALDOA, ALDA, GSD12, HEL-S-87p...'
-					# 'hsa_tags': entry.get('name'), 							# i.e. 'hsa:226 hsa:229 hsa:230'
 					'name': entry[0].get('name').split(', ')[0].rstrip('.'), # i.e. 'ALDOA'
 				}
 				node_attributes.append(node_attribute)
@@ -245,7 +243,7 @@ class KEGGX:
 			node_graphics_attributes[int(entry.get('id'))] = node_graphics_attribute
 
 		# Set node graphics attributes
-		nx.set_node_attributes(graph, { key:attrib for key,attrib in node_graphics_attributes.items() if key in graph.nodes() })
+		nx.set_node_attributes(graph, node_graphics_attributes)
 		# Set rest of the node attributes
 		nx.set_node_attributes(graph, self.node_attributes_df.set_index('id').to_dict('index'))
 		# Relabel so nodes are keyed by gene and compound symbols
@@ -254,7 +252,6 @@ class KEGGX:
 		nx.write_graphml(graph, path)
 
 		return graph
-
 
 
 	def output_KGML_as_networkx(self, directed=False, graphics=True): 
