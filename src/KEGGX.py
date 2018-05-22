@@ -27,9 +27,9 @@ class KEGGX:
 
 
 		self.node_attributes  = self._get_node_attributes()
-		self.group_attributes = self._get_group_attributes()
-
 		self.node_attributes_df = pd.DataFrame(self.node_attributes).set_index('id')
+
+		self.group_attributes = self._get_group_attributes()
 
 		self.edge_attributes  = self._get_edge_attributes_from_reactions_and_relations()
 
@@ -87,24 +87,28 @@ class KEGGX:
 
 
 	######################################
-	### Parse tree reactions
+	### Parse edges
 	######################################
 
 	def _get_edge_attributes_from_reactions_and_relations(self): 
 
 		# Prioritize reaction edges over relations by populating `edge_attributes` with reaction edges first
-		edge_attributes = self._get_edge_attributes_from_reactions()
-
-		existing_edges = [set([edge_attribute['source'], edge_attribute['target']]) for edge_attribute in edge_attributes]
+		edge_attributes     = self._get_edge_attributes_from_reactions()
 		relation_attributes = self._get_edge_attributes_from_relations()
 
 		for relation_attribute in relation_attributes: 
 
+			# Get edges in `edge_attributes` as a list of sets
+			existing_edges = [set([edge_attribute['source'], edge_attribute['target']]) for edge_attribute in edge_attributes]
+
+			# Add edge attribute if the edge has not been seen before
 			if set([relation_attribute['source'], relation_attribute['target']]) not in existing_edges: 
 
 				edge_attributes.append(relation_attribute)
 
-		return edge_attributes
+		# Convert to DataFrame and replace group edges 
+		self.edge_attributes_df = pd.DataFrame(edge_attributes)
+		self._replace_group_edges()
 
 
 	def _get_edge_attributes_from_reactions(self): 
@@ -151,7 +155,6 @@ class KEGGX:
 					relation_attributes.append(self._populate_edge_attribute(source, target, edge_type, edge_descriptors))
 
 				else: 
-
 					# Loop through all subtype values, find element that matches the subtype `compound`
 					compound_id = [int(subtype.get('value')) for subtype in relation.findall('subtype') if subtype.get('name') == 'compound'][0]
 
@@ -169,7 +172,7 @@ class KEGGX:
 			'source': source,
 			'target': target,
 			'type': edge_type, 
-			'activation': 0,  		# 1 if node1 activates node2, -1 if node2 activates node1, 0 if unknown (ie. oriented==0)
+			'activation': 0,  		# 1 if source activates target, -1 if target activates source, 0 if unknown (ie. oriented==0)
 			'oriented': 0,  		# 1 if orientation of arrow is known, 0 otherwise. This may be extraneuous
 			'phosphorylation': 0,  
 			'glycosylation': 0, 
@@ -194,69 +197,29 @@ class KEGGX:
 		return edge_attributes
 
 
-	# def _get_edge_attributes_
+	def _replace_group_edges(self):
 
+		for group_obj in self.group_attributes: 
 
-	# def _get_edge_attributes_from_relations(self): 
+			group_id, group_members = group_obj['id'], group_obj['components']
+			n_members, n_edges = len(group_members), len(self.edge_attributes_df)
 
-	# 	relation_attributes = []
-
-	# 	for relation in self.relations: 
-
-	# 		if relation.get('type') in [ 'PPrel', 'GErel' ]: # TODO: include `PCrel`
-
-	# 			edge_attributes = { 
-	# 				'node1': int(relation.get('entry1')),
-	# 				'node2': int(relation.get('entry2')),
-	# 				'type': relation.get('type'),  # ECrel, PPrel, GErel, PCrel, maplink
-	# 				'activation': 0,  # 1 if node1 activates node2, -1 if node2 activates node1, 0 if unknown (ie. oriented==0)
-	# 				'oriented': 1,  # 1 if orientation of arrow is known, 0 otherwise. This may be extraneuous
-	# 				'phosphorylation': 0,  
-	# 				'glycosylation': 0, 
-	# 				'ubiquitination': 0, 
-	# 				'methylation': 0
-	# 			}
-
-	# 			for relation_tag in relation: 
-
-	# 				interaction = relation_tag.get('name')
-
-	# 				if interaction in ['activation', 'expression', 'indirect effect']: 
-	# 					edge_attributes['activation'] = 1
-	# 				elif interaction in ['inhibition', 'repression']: 
-	# 					edge_attributes['activation'] = -1
-	# 				elif interaction in ['binding/association']: 
-	# 					edge_attributes['activation'] = 0
-	# 					edge_attributes['oriented'] = 0
-
-	# 				elif interaction == 'phosphorylation': 
-	# 					edge_attributes['phosphorylation'] = 1
-	# 				elif interaction == 'dephosphorylation': 
-	# 					edge_attributes['phosphorylation'] = -1
-						
-	# 				elif interaction == 'glycosylation':
-	# 					edge_attributes['glycosylation'] = 1
-						
-	# 				elif interaction == 'ubiquitination': 
-	# 					edge_attributes['ubiquitination'] = 1
-						
-	# 				elif interaction == 'methylation': 
-	# 					edge_attributes['methylation'] = 1
-
-	# 			relation_attributes.append(edge_attributes)
-
-
-	# 				# Force edge through compound node. Unfortunately, these interactions are poorly annotated in KGML.
-	# 				# These should be of type 'ECrel', but may be mistakenly annotated as 'PPrel' in KGMLs.
-	# 				elif interaction == 'compound': 
-	# 					edge1 = {'node1': edge_attributes['node1'], 'node2': int(element.get('value')), 'type': 'PPrel'}
-	# 					edge2 = {'node2': edge_attributes['node2'], 'node2': int(element.get('value')), 'type': 'PPrel'}
-
-	# 				else: 
-	# 					pass
-
-	# 		# TODO: include ECrel
-
+			# Add edges where `node1` or `node2` is a group member
+			for node_type in ['source', 'target']: 
+				edges_with_df = self.edge_attributes_df[self.edge_attributes_df[node_type] == group_id]
+				edges_without_df = self.edge_attributes_df[self.edge_attributes_df[node_type] != group_id]
+				# Duplicate rows where `node1` contains the `group_id`
+				expanded_edges_df = pd.concat([edges_with_df]*n_members).sort_index() 
+				# Replace `node` column with repeating list of `group_members`
+				expanded_edges_df[node_type] = group_members*len(edges_with_df)
+				# Concatenate the new dataframes and reset index
+				self.edge_attributes_df = pd.concat([expanded_edges_df, edges_without_df]).reset_index(drop=True)
+		
+			# Add edges *between* group members.
+			group_rows = [ self._populate_edge_attribute(a, b, 'PComplex', []) for a,b in combinations(group_members, 2) ]
+			self.edge_attributes_df = self.edge_attributes_df.append(pd.DataFrame(group_rows), ignore_index=True).fillna(0)
+		
+			# print('{} members in group {}. {} edges added.'.format(n_members, group_id, len(self.edge_attributes_df)-n_edges))
 
 
 
