@@ -41,23 +41,24 @@ class KEGGX:
 		for entry in self.entries: 
 
 			entry_type = entry.get('type')
+			graphics_attribute = entry.find('graphics').attrib
 
 			# Parse `gene`-type entries
 			if entry_type == 'gene': 
 				node_attribute = {
-					'type': entry_type, 									# i.e. 'gene'
+					'node_type': entry_type, 									# i.e. 'gene'
 					'id': int(entry.get('id')), 							# i.e. 84
-					'aliases': entry[0].get('name'), 						# i.e. 'ALDOA, ALDA, GSD12, HEL-S-87p...'
-					'hsa_tags': entry.get('name'), 							# i.e. 'hsa:226 hsa:229 hsa:230'
-					'name': entry[0].get('name').split(', ')[0].rstrip('.') # i.e. 'ALDOA'
+					# 'aliases': entry[0].get('name'), 						# i.e. 'ALDOA, ALDA, GSD12, HEL-S-87p...'
+					# 'hsa_tags': entry.get('name'), 							# i.e. 'hsa:226 hsa:229 hsa:230'
+					'name': entry[0].get('name').split(', ')[0].rstrip('.'), # i.e. 'ALDOA'
 				}
 				node_attributes.append(node_attribute)
 			# Parse `compound`-type entries
 			elif entry_type == 'compound': 
 				node_attribute = {
-					'type': entry_type, 
+					'node_type': entry_type, 
 					'id': int(entry.get('id')),
-					'name': entry.get('name')
+					'name': entry.get('name'), 
 				}
 				node_attributes.append(node_attribute)
 
@@ -66,6 +67,11 @@ class KEGGX:
 		node_attributes_df = pd.DataFrame(node_attributes)
 
 		return node_attributes_df
+
+	def _get_node_graphics_attributes(self): 
+
+		graphics_attributes = []
+
 
 	def _get_group_attributes(self): 
 
@@ -76,7 +82,7 @@ class KEGGX:
 			if entry.get('type') == 'group':
 
 				group_attribute = {
-					'type': entry.get('type'), 
+					'node_type': entry.get('type'), 
 					'id': int(entry.get('id')), 
 					'components': [int(x.get('id')) for x in entry.findall('component')]
 				}
@@ -168,22 +174,26 @@ class KEGGX:
 
 		# 1 if source activates target, -1 if target activates source, 0 if unknown (ie. oriented==0)
 		# 1 if orientation of arrow is known, 0 otherwise. This may be extraneuous
-		edge_attributes = { 'source': source, 'target': target, 'type': edge_type, 'activation': 0, 'oriented': 0, 'phosphorylation': 0, 'glycosylation': 0, 'ubiquitination': 0, 'methylation': 0 }
+		edge_attributes = { 'source': source, 'target': target, 'type': edge_type, 'activation': 0, 'oriented': 0, 'indirect': 0, 'phosphorylation': 0, 'glycosylation': 0, 'ubiquitination': 0, 'methylation': 0 }
 
 		for interaction in interactions: 
-			if interaction in ['activation', 'expression', 'indirect effect']:  edge_attributes.update({ 'activation':       1, 'oriented': 1 })
-			elif interaction in ['inhibition', 'repression']:  					edge_attributes.update({ 'activation':      -1, 'oriented': 1 })
-			elif interaction in ['binding/association']: 						edge_attributes.update({ 'activation':       0, 'oriented': 0 })
+			if   interaction in ['activation', 'expression']:	edge_attributes.update({ 'activation':  1, 'oriented': 1 })
+			elif interaction in ['inhibition', 'repression']:	edge_attributes.update({ 'activation': -1, 'oriented': 1 })
+			elif interaction in ['binding/association']: 		edge_attributes.update({ 'activation':  0, 'oriented': 0 })
 
-			elif interaction == 'phosphorylation': 								edge_attributes.update({ 'phosphorylation':  1, 'oriented': 1 })
-			elif interaction == 'dephosphorylation': 							edge_attributes.update({ 'phosphorylation': -1, 'oriented': 1 })				
-			elif interaction == 'glycosylation': 								edge_attributes.update({ 'glycosylation':    1, 'oriented': 1 })
-			elif interaction == 'ubiquitination': 								edge_attributes.update({ 'ubiquitination':   1, 'oriented': 1 })
-			elif interaction == 'methylation': 									edge_attributes.update({ 'methylation':      1, 'oriented': 1 })
+			elif interaction == 'indirect effect': 				edge_attributes.update({ 'indirect': 1 })
 
-			elif interaction == 'compound':										pass
-			elif interaction == 'complex': 										edge_attributes.update({ 'activation': 		 1, 'oriented': 0 }) # complex proteins activate each other bidirectionally
-			else: 																pass
+			elif interaction == 'phosphorylation': 				edge_attributes.update({ 'phosphorylation':  1, 'oriented': 1 })
+			elif interaction == 'dephosphorylation': 			edge_attributes.update({ 'phosphorylation': -1, 'oriented': 1 })				
+			elif interaction == 'glycosylation': 				edge_attributes.update({ 'glycosylation':    1, 'oriented': 1 })
+			elif interaction == 'ubiquitination': 				edge_attributes.update({ 'ubiquitination':   1, 'oriented': 1 })
+			elif interaction == 'methylation': 					edge_attributes.update({ 'methylation':      1, 'oriented': 1 })
+
+			elif interaction == 'compound':						pass
+			elif interaction == 'complex': 						edge_attributes.update({ 'activation': 1, 'oriented': 0 }) # complex proteins activate each other bidirectionally
+			else: 												pass
+
+		# Add rules here
 
 		return edge_attributes
 
@@ -218,18 +228,65 @@ class KEGGX:
 	## Create graphs
 	#####
 
-	def output_KGML_as_networkx(self, directed=False): 
+	def output_KGML_as_graphml(self, path): 
 
+		graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+
+		node_graphics_attributes = {}
+
+		for entry in self.entries: 
+			# Retrieve graphics attributes (ie. position, shape, color, etc.) and rename some keys
+			node_graphics_attribute = entry.find('graphics').attrib
+			node_graphics_attribute['aliases'] = node_graphics_attribute.pop('name', None)
+			node_graphics_attribute['shape']   = node_graphics_attribute.pop('type', None)
+
+			node_graphics_attributes[int(entry.get('id'))] = node_graphics_attribute
+
+		# Set node graphics attributes
+		nx.set_node_attributes(graph, { key:attrib for key,attrib in node_graphics_attributes.items() if key in graph.nodes() })
+		# Set rest of the node attributes
+		nx.set_node_attributes(graph, self.node_attributes_df.set_index('id').to_dict('index'))
+
+		nx.relabel_nodes(graph, {node_id: graph.node[node_id]['name'] for node_id in graph.nodes()}, copy=False)
+
+		nx.write_graphml(graph, path)
+
+		return graph
+
+
+	def output_KGML_as_networkx(self, directed=False, graphics=True): 
+
+		# Edges with unknown orientation must be reversed and appended to the edge list
 		if directed: 
 			reverse_edges_df = self.edge_attributes_df[self.edge_attributes_df['oriented'] == 0].rename(columns={'source': 'target', 'target': 'source'})
 			bidirected_edge_attributes_df = pd.concat([self.edge_attributes_df, reverse_edges_df])
 
 			graph = nx.from_pandas_edgelist(bidirected_edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
-			nx.set_node_attributes(graph, self.node_attributes_df.set_index('id').to_dict('index'))
 
 		else: 
 			graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True)
-			nx.set_node_attributes(graph, self.node_attributes_df.set_index('id').to_dict('index'))
+
+		# Handle graphics
+		if graphics: 
+
+			node_graphics_attributes = {}
+
+			for entry in self.entries: 
+				# Retrieve graphics attributes (ie. position, shape, color, etc.) and rename some keys
+				node_graphics_attribute = entry.find('graphics').attrib
+				node_graphics_attribute['aliases'] = node_graphics_attribute.pop('name', None)
+				node_graphics_attribute['shape']   = node_graphics_attribute.pop('type', None)
+
+				node_graphics_attributes[int(entry.get('id'))] = node_graphics_attribute
+
+			nx.set_node_attributes(graph, { key:attrib for key,attrib in node_graphics_attributes.items() if key in graph.nodes() })
+
+			# nx.set_node_attributes(graph, { int(entry.get('id')): entry.find('graphics').attrib for entry in self.entries if int(entry.get('id')) in graph.nodes() })
+
+
+		nx.set_node_attributes(graph, self.node_attributes_df.set_index('id').to_dict('index'))
+
+		nx.relabel_nodes(graph, {node_id: graph.node[node_id]['name'] for node_id in graph.nodes()}, copy=False)
 
 		return graph
 
