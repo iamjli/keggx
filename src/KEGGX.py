@@ -45,19 +45,11 @@ class KEGGX:
 
 			# Parse `gene`-type entries
 			if entry_type == 'gene': 
-				node_attribute = {
-					'node_type': entry_type, 									# i.e. 'gene'
-					'id': int(entry.get('id')), 							# i.e. 84
-					'name': entry[0].get('name').split(', ')[0].rstrip('.'), # i.e. 'ALDOA'
-				}
+				node_attribute = { 'node_type': entry_type, 'id': int(entry.get('id')), 'name': entry[0].get('name').split(', ')[0].rstrip('.') }
 				node_attributes.append(node_attribute)
 			# Parse `compound`-type entries
 			elif entry_type == 'compound': 
-				node_attribute = {
-					'node_type': entry_type, 
-					'id': int(entry.get('id')),
-					'name': entry.get('name'), 
-				}
+				node_attribute = { 'node_type': entry_type, 'id': int(entry.get('id')), 'name': entry.get('name') }
 				node_attributes.append(node_attribute)
 
 			else: pass
@@ -65,10 +57,6 @@ class KEGGX:
 		node_attributes_df = pd.DataFrame(node_attributes)
 
 		return node_attributes_df
-
-	def _get_node_graphics_attributes(self): 
-
-		graphics_attributes = []
 
 
 	def _get_group_attributes(self): 
@@ -223,7 +211,7 @@ class KEGGX:
 
 
 	#####
-	## Create graphs
+	## Outputs
 	#####
 
 	def output_KGML_as_graphml(self, path): 
@@ -254,7 +242,7 @@ class KEGGX:
 		return graph
 
 
-	def output_KGML_as_networkx(self, directed=False, graphics=True): 
+	def output_KGML_as_networkx(self, directed=False): 
 
 		# Edges with unknown orientation must be reversed and appended to the edge list
 		if directed: 
