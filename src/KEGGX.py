@@ -72,7 +72,7 @@ class KEGGX:
 		# Convert to DataFrame and replace group edges 
 		edge_attributes_df = pd.DataFrame(edge_attributes_list)
 		edge_attributes_df = self._replace_group_edges(edge_attributes_df)
-		edge_attributes_df = edge_attributes_df[['source', 'target', 'effect', 'indirect', 'modification', 'type']]
+		if len(edge_attributes_df) > 0: edge_attributes_df = edge_attributes_df[['source', 'target', 'effect', 'indirect', 'modification', 'type']]
 
 		return edge_attributes_df
 
@@ -83,6 +83,21 @@ class KEGGX:
 		directed_edge_attributes_df = pd.concat([self.edge_attributes_df, reverse_edges_df])
 
 		return directed_edge_attributes_df
+
+
+	def _get_gene_edge_attributes_as_dataframe(self, edge_attributes_df): 
+
+		compound_ids = self.node_attributes_df[self.node_attributes_df['type'] == 'compound'].index
+
+		directed_edge_attributes_df = self._get_directed_edge_attributes_as_dataframe(edge_attributes_df)
+
+		# A --> compound --> B
+
+		# A --> compound <-> B
+
+		# A <-> compound --> B
+
+		# A <-> compound <-> B
 
 
 	def _populate_edge_attributes(self, source, target, edge_type, interactions): 
@@ -205,7 +220,10 @@ class KEGGX:
 	def output_KGML_as_graphml(self, path, detailed=False): 
 
 		# Initialize graph from `edge_attributes_df`
-		graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+		if len(self.edge_attributes_df) > 0:
+			graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+		else: 
+			graph = nx.DiGraph()
 		# Detailed visualization includes singletons as non-gene or compound nodes, such as orthology, titles, etc.
 		if detailed: graph.add_nodes_from(self.entry_attributes_df.index)
 
