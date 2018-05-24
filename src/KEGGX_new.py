@@ -36,21 +36,12 @@ class KEGGX:
 
 	def _get_entry_attributes_as_dataframe(self): 
 
-		entry_attributes = []
+		entry_type_df     = pd.DataFrame([entry.attrib for entry in self._entries]).drop(columns=['name', 'link'])
+		entry_graphics_df = pd.DataFrame([entry.find('graphics').attrib for entry in self._entries]).rename(columns={'name': 'aliases', 'type': 'shape'})
 
-		for entry in self._entries: 	
-
-			aliases = entry.find('graphics').get('name', "")
-
-			entry_attribute = {
-				'id': entry.get('id'),
-				'aliases': aliases,
-				'type': entry.get('type'),
-				'name': aliases.split(', ')[0].rstrip('.')
-			}
-			entry_attributes.append(entry_attribute)
-
-		entry_attributes_df = pd.DataFrame(entry_attributes)
+		entry_attributes_df = pd.concat([entry_type_df, entry_graphics_df], axis=1).fillna("")
+		entry_attributes_df['name'] = entry_attributes_df['aliases'].apply(lambda x: x.split(', ')[0].rstrip('.'))
+		entry_attributes_df = entry_attributes_df[['id', 'name', 'aliases', 'type', 'x', 'y', 'height', 'width', 'shape', 'bgcolor', 'fgcolor']].set_index('id')
 
 		return entry_attributes_df
 
@@ -81,9 +72,10 @@ class KEGGX:
 		# Convert to DataFrame and replace group edges 
 		edge_attributes_df = pd.DataFrame(edge_attributes_list)
 		edge_attributes_df = self._replace_group_edges(edge_attributes_df)
+		edge_attributes_df = edge_attributes_df[['source', 'target', 'effect', 'indirect', 'modification', 'type']]
 
 		return edge_attributes_df
-		
+
 
 	def _populate_edge_attributes(self, source, target, edge_type, interactions): 
 
@@ -101,6 +93,14 @@ class KEGGX:
 			elif interaction == 'dissociation': 	   edge_attributes.update({ 'effect': 1 })
 			elif interaction == 'missing interaction': edge_attributes.update({ 'effect': 0 })
 			else: pass
+
+		for interaction in interactions: 
+
+			if   interaction == 'phosphorylation':	 edge_attributes.update({ 'modification': "+p", 'effect': 1 })
+			elif interaction == 'dephosphorylation': edge_attributes.update({ 'modification': "-p", 'effect': 1 })
+			elif interaction == 'glycosylation': 	 edge_attributes.update({ 'modification': "+g", 'effect': 1 })
+			elif interaction == 'ubiquitination': 	 edge_attributes.update({ 'modification': "+u", 'effect': 1 })
+			elif interaction == 'methylation': 		 edge_attributes.update({ 'modification': "+m", 'effect': 1 })
 
 		for interaction in interactions: 
 
@@ -190,6 +190,25 @@ class KEGGX:
 			edge_attributes_df = edge_attributes_df.append(pd.DataFrame(group_rows), ignore_index=True).fillna(0)
 		
 		return edge_attributes_df
+
+
+	#### OUTPUTS ####
+
+	def output_KGML_as_graphml(self, path, detailed=False): 
+
+		# Initialize graph from `edge_attributes_df`
+		graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+		# Detailed visualization includes singletons as non-gene or compound nodes, such as orthology, titles, etc.
+		if detailed: graph.add_nodes_from(self.entry_attributes_df.index)
+
+		nx.set_node_attributes(graph, self.entry_attributes_df.to_dict('index'))
+
+		nx.write_graphml(graph, path)
+
+		return graph
+
+
+
 
 
 
