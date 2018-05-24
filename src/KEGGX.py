@@ -77,6 +77,14 @@ class KEGGX:
 		return edge_attributes_df
 
 
+	def _get_directed_edge_attributes_as_dataframe(self, edge_attributes_df): 
+		# If A<-->B, this function splits into two relations: A-->B and B-->A
+		reverse_edges_df = self.edge_attributes_df[self.edge_attributes_df['effect'].isin([-2,0,2])].rename(columns={ 'source': 'target', 'target': 'source'})
+		directed_edge_attributes_df = pd.concat([self.edge_attributes_df, reverse_edges_df])
+
+		return directed_edge_attributes_df
+
+
 	def _populate_edge_attributes(self, source, target, edge_type, interactions): 
 
 		# Attribute `effect` takes values 0 (---), 1 (-->), 2 (<->), or -1 (--|) to indicate cases where
@@ -212,10 +220,9 @@ class KEGGX:
 
 		if directed: # how to treat effect = 0, ie when orientation is unknown?
 
-			reverse_edges_df = self.edge_attributes_df[self.edge_attributes_df['effect'].isin([-2,0,2])].rename(columns={ 'source': 'target', 'target': 'source'})
-			bidirected_edge_attributes_df = pd.concat([self.edge_attributes_df, reverse_edges_df])
+			directed_edge_attributes_df = self._get_directed_edge_attributes_as_dataframe(self.edge_attributes_df)
 
-			graph = nx.from_pandas_edgelist(bidirected_edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+			graph = nx.from_pandas_edgelist(directed_edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
 
 		else: 
 			graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True)
