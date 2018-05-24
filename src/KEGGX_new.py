@@ -21,13 +21,69 @@ class KEGGX:
 		self.link   = self.root.get('link')
 
 		# Each of the 3 types of elements allowed in KGML files
-		self.entries   = self.root.findall('entry')
-		self.reactions = self.root.findall('reaction')
-		self.relations = self.root.findall('relation')
+		self._entries   = self.root.findall('entry')
+		self._reactions = self.root.findall('reaction')
+		self._relations = self.root.findall('relation')
+		self._groups    = self.root.findall('.//entry[@type="group"]')
 
+
+		self.entry_attributes_df = self._get_entry_attributes_as_dataframe()
+		self.node_attributes_df  = self._get_node_attributes_as_dataframe()
+		self.edge_attributes_df  = self._get_edge_attributes_as_dataframe()
+
+
+	#### NODES ####
+
+	def _get_entry_attributes_as_dataframe(self): 
+
+		entry_attributes = []
+
+		for entry in self._entries: 	
+
+			aliases = entry.find('graphics').get('name', "")
+
+			entry_attribute = {
+				'id': entry.get('id'),
+				'aliases': aliases,
+				'type': entry.get('type'),
+				'name': aliases.split(', ')[0].rstrip('.')
+			}
+			entry_attributes.append(entry_attribute)
+
+		entry_attributes_df = pd.DataFrame(entry_attributes)
+
+		return entry_attributes_df
+
+
+	def _get_node_attributes_as_dataframe(self): 
+
+		return self.entry_attributes_df[self.entry_attributes_df['type'].isin(['gene', 'compound'])]
 
 
 	#### EDGES ####
+
+	def _get_edge_attributes_as_dataframe(self): 
+
+		# Prioritize reaction edges over relations by populating `edge_attributes` with reaction edges first
+		edge_attributes_list     = self._get_edge_attributes_from_reactions()
+		relation_attributes_list = self._get_edge_attributes_from_relations()
+
+		for relation_attributes in relation_attributes_list: 
+
+			# Get edges in `edge_attributes` as a list of sets
+			existing_edges = [set([edge_attributes['source'], edge_attributes['target']]) for edge_attributes in edge_attributes_list]
+
+			# Add edge attribute if the edge has not been seen before
+			if set([relation_attributes['source'], relation_attributes['target']]) not in existing_edges: 
+
+				edge_attributes_list.append(relation_attributes)
+
+		# Convert to DataFrame and replace group edges 
+		edge_attributes_df = pd.DataFrame(edge_attributes_list)
+		edge_attributes_df = self._replace_group_edges(edge_attributes_df)
+
+		return edge_attributes_df
+		
 
 	def _populate_edge_attributes(self, source, target, edge_type, interactions): 
 
@@ -58,11 +114,11 @@ class KEGGX:
 		return edge_attributes
 
 
-	def _get_edge_attributes_from_reaction(self): 
+	def _get_edge_attributes_from_reactions(self): 
 
 		reaction_attributes_list = []
 
-		for reaction in self.reactions: 
+		for reaction in self._reactions: 
 
 			compound_id, reaction_name, reaction_type = reaction.get('id'), reaction.get('name'), reaction.get('type')
 			substrate_ids = [substrate.get('id') for substrate in reaction.findall('substrate')]
@@ -88,7 +144,7 @@ class KEGGX:
 
 		relation_attributes_list = []
 
-		for relation in self.relations: 
+		for relation in self._relations: 
 
 			source, target = relation.get('entry1'), relation.get('entry2')
 			edge_type = relation.get('type')
@@ -102,9 +158,8 @@ class KEGGX:
 					relation_attributes_list.append(self._populate_edge_attributes(source, target, edge_type, edge_descriptors))
 
 				else: 
-
 					# Get compound id by first searching through subtypes with `name` attribute equal to 'compound', then retrieving 'value'
-					compound_id = relation.find(".//subtype[@name='compound']").get('value')
+					compound_id = relation.find('.//subtype[@name="compound"]').get('value')
 
 					relation_attributes_list.append(self._populate_edge_attributes(source, compound_id, edge_type, edge_descriptors))
 					relation_attributes_list.append(self._populate_edge_attributes(compound_id, target, edge_type, edge_descriptors))
@@ -112,25 +167,28 @@ class KEGGX:
 		return relation_attributes_list
 
 
-	def _get_edge_attributes_as_dataframe(self): 
+	def _replace_group_edges(self, edge_attributes_df):
 
-		# Prioritize reaction edges over relations by populating `edge_attributes` with reaction edges first
-		edge_attributes     = self._get_edge_attributes_from_reactions()
-		relation_attributes = self._get_edge_attributes_from_relations()
+		for group_element in self._groups: 
 
-		for relation_attribute in relation_attributes: 
+			group_id = group_element.get('id')
+			group_members = [component.get('id') for component in group_element.findall('component')]
 
-			# Get edges in `edge_attributes` as a list of sets
-			existing_edges = [set([edge_attribute['source'], edge_attribute['target']]) for edge_attribute in edge_attributes]
-
-			# Add edge attribute if the edge has not been seen before
-			if set([relation_attribute['source'], relation_attribute['target']]) not in existing_edges: 
-
-				edge_attributes.append(relation_attribute)
-
-		# Convert to DataFrame and replace group edges 
-		edge_attributes_df = self._replace_group_edges(pd.DataFrame(edge_attributes))
-
+			# Add edges where `node1` or `node2` is a group member
+			for node_type in ['source', 'target']: 
+				edges_with_df    = edge_attributes_df[edge_attributes_df[node_type] == group_id]
+				edges_without_df = edge_attributes_df[edge_attributes_df[node_type] != group_id]
+				# Duplicate rows where `node1` contains the `group_id`
+				expanded_edges_df = pd.concat([edges_with_df]*len(group_members)).sort_index() 
+				# Replace `node` column with repeating list of `group_members`
+				expanded_edges_df[node_type] = group_members*len(edges_with_df)
+				# Concatenate the new dataframes and reset index
+				edge_attributes_df = pd.concat([expanded_edges_df, edges_without_df]).reset_index(drop=True)
+		
+			# Add edges *between* group members. Complexed proteins are essentially `binding/association`
+			group_rows = [ self._populate_edge_attributes(a, b, 'PComplex', ['binding/association']) for a,b in combinations(group_members, 2) ]
+			edge_attributes_df = edge_attributes_df.append(pd.DataFrame(group_rows), ignore_index=True).fillna(0)
+		
 		return edge_attributes_df
 
 
