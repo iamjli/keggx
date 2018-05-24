@@ -46,9 +46,9 @@ class KEGGX:
 		return entry_attributes_df
 
 
-	def _get_node_attributes_as_dataframe(self): 
+	def _get_node_attributes_as_dataframe(self, types=['gene', 'compound']): 
 
-		return self.entry_attributes_df[self.entry_attributes_df['type'].isin(['gene', 'compound'])]
+		return self.entry_attributes_df[self.entry_attributes_df['type'].isin(types)]
 
 
 	#### EDGES ####
@@ -92,15 +92,16 @@ class KEGGX:
 			if   interaction == 'binding/association': edge_attributes.update({ 'effect': 2 })
 			elif interaction == 'dissociation': 	   edge_attributes.update({ 'effect': 1 })
 			elif interaction == 'missing interaction': edge_attributes.update({ 'effect': 0 })
+			elif interaction == 'indirect effect':     edge_attributes.update({ 'effect': 1, 'indirect': 1 })
 			else: pass
 
 		for interaction in interactions: 
 
-			if   interaction == 'phosphorylation':	 edge_attributes.update({ 'modification': "+p", 'effect': 1 })
-			elif interaction == 'dephosphorylation': edge_attributes.update({ 'modification': "-p", 'effect': 1 })
-			elif interaction == 'glycosylation': 	 edge_attributes.update({ 'modification': "+g", 'effect': 1 })
-			elif interaction == 'ubiquitination': 	 edge_attributes.update({ 'modification': "+u", 'effect': 1 })
-			elif interaction == 'methylation': 		 edge_attributes.update({ 'modification': "+m", 'effect': 1 })
+			if   interaction == 'phosphorylation':	 edge_attributes.update({ 'effect': 1, 'modification': "+p" })
+			elif interaction == 'dephosphorylation': edge_attributes.update({ 'effect': 1, 'modification': "-p" })
+			elif interaction == 'glycosylation': 	 edge_attributes.update({ 'effect': 1, 'modification': "+g" })
+			elif interaction == 'ubiquitination': 	 edge_attributes.update({ 'effect': 1, 'modification': "+u" })
+			elif interaction == 'methylation': 		 edge_attributes.update({ 'effect': 1, 'modification': "+m" })
 
 		for interaction in interactions: 
 
@@ -108,7 +109,6 @@ class KEGGX:
 			elif interaction == 'inhibition': 	   edge_attributes.update({ 'effect': -1 })
 			elif interaction == 'expression': 	   edge_attributes.update({ 'effect':  1, 'modification': 'e'})
 			elif interaction == 'repression': 	   edge_attributes.update({ 'effect': -1, 'modification': 'e'})
-			elif interaction == 'indirect effect': edge_attributes.update({ 'indirect': 1 })
 			else: pass
 
 		return edge_attributes
@@ -204,6 +204,25 @@ class KEGGX:
 		nx.set_node_attributes(graph, self.entry_attributes_df.to_dict('index'))
 
 		nx.write_graphml(graph, path)
+
+		return graph
+
+
+	def output_KGML_as_networkx(self, directed=True): 
+
+		if directed: # how to treat effect = 0, ie when orientation is unknown?
+
+			reverse_edges_df = self.edge_attributes_df[self.edge_attributes_df['effect'].isin([-2,0,2])].rename(columns={ 'source': 'target', 'target': 'source'})
+			bidirected_edge_attributes_df = pd.concat([self.edge_attributes_df, reverse_edges_df])
+
+			graph = nx.from_pandas_edgelist(bidirected_edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+
+		else: 
+			graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True)
+
+		nx.set_node_attributes(graph, self.entry_attributes_df.to_dict('index'))
+
+		nx.relabel_nodes(graph, { node_id: graph.node[node_id]['name'] for node_id in graph.nodes() }, copy=False)
 
 		return graph
 
