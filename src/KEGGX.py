@@ -5,7 +5,7 @@ import networkx as nx
 
 import xml.etree.ElementTree as ET
 
-from itertools import combinations
+from itertools import combinations, product
 
 
 class KEGGX:
@@ -72,9 +72,46 @@ class KEGGX:
 		# Convert to DataFrame and replace group edges 
 		edge_attributes_df = pd.DataFrame(edge_attributes_list)
 		edge_attributes_df = self._replace_group_edges(edge_attributes_df)
-		edge_attributes_df = edge_attributes_df[['source', 'target', 'effect', 'indirect', 'modification', 'type']]
+		if len(edge_attributes_df) > 0: edge_attributes_df = edge_attributes_df[['source', 'target', 'effect', 'indirect', 'modification', 'type']]
 
 		return edge_attributes_df
+
+
+	def _get_directed_edge_attributes_as_dataframe(self, edge_attributes_df): 
+		# If A<-->B, this function splits into two relations: A-->B and B-->A
+		reverse_edges_df = self.edge_attributes_df[self.edge_attributes_df['effect'].isin([-2,0,2])].rename(columns={ 'source': 'target', 'target': 'source'})
+		directed_edge_attributes_df = pd.concat([self.edge_attributes_df, reverse_edges_df])
+
+		return directed_edge_attributes_df
+
+
+	def _get_gene_edge_attributes_as_dataframe(self): 
+
+		compound_ids = self.node_attributes_df[self.node_attributes_df['type'] == 'compound'].index
+
+		directed_edge_attributes_df = self._get_directed_edge_attributes_as_dataframe(self.edge_attributes_df)
+
+		inferred_edges = []
+		oriented_edge_attributes_df = directed_edge_attributes_df[directed_edge_attributes_df['effect'] != 0]
+
+		for compound_id in compound_ids: 
+			sourced_compounds_df  = oriented_edge_attributes_df[oriented_edge_attributes_df['source'] == compound_id]
+			targeted_compounds_df = oriented_edge_attributes_df[oriented_edge_attributes_df['target'] == compound_id]
+
+			source_nodes = targeted_compounds_df['source'].tolist()
+			target_nodes = sourced_compounds_df['target'].tolist()
+
+			for source, target in product(source_nodes, target_nodes): 
+				inferred_edges.append(self._populate_edge_attributes(source, target, "inferred_rxn", ['activation']))
+
+		inferred_edges_df = pd.DataFrame(inferred_edges).drop_duplicates()
+
+		# Remove duplicated edges, consolidate bidirectional edges
+		edgelist_as_sets = [set(pair) for pair in inferred_edges_df[['source', 'target']].values]
+		inferred_edges_df['effect'] = [edgelist_as_sets.count(pair) for pair in edgelist_as_sets]
+		inferred_edges_df = inferred_edges_df[[False if pair in edgelist_as_sets[:i] else True for i,pair in enumerate(edgelist_as_sets)]]
+
+		return inferred_edges_df
 
 
 	def _populate_edge_attributes(self, source, target, edge_type, interactions): 
@@ -90,6 +127,8 @@ class KEGGX:
 		for interaction in interactions: 
 
 			if   interaction == 'binding/association': edge_attributes.update({ 'effect': 2 })
+			elif interaction == 'protein complex':	   edge_attributes.update({ 'effect': 2 }) # not standard type, but including for clarity
+			elif interaction == 'bidirected':	   	   edge_attributes.update({ 'effect': 2 }) # not standard type, but including for clarity
 			elif interaction == 'dissociation': 	   edge_attributes.update({ 'effect': 1 })
 			elif interaction == 'missing interaction': edge_attributes.update({ 'effect': 0 })
 			elif interaction == 'indirect effect':     edge_attributes.update({ 'effect': 1, 'indirect': 1 })
@@ -174,6 +213,7 @@ class KEGGX:
 			group_id = group_element.get('id')
 			group_members = [component.get('id') for component in group_element.findall('component')]
 
+			# TODO: Make sure these edges haven't been added yet.
 			# Add edges where `node1` or `node2` is a group member
 			for node_type in ['source', 'target']: 
 				edges_with_df    = edge_attributes_df[edge_attributes_df[node_type] == group_id]
@@ -186,7 +226,7 @@ class KEGGX:
 				edge_attributes_df = pd.concat([expanded_edges_df, edges_without_df]).reset_index(drop=True)
 		
 			# Add edges *between* group members. Complexed proteins are essentially `binding/association`
-			group_rows = [ self._populate_edge_attributes(a, b, 'PComplex', ['binding/association']) for a,b in combinations(group_members, 2) ]
+			group_rows = [ self._populate_edge_attributes(a, b, 'PComplex', ['protein complex']) for a,b in combinations(group_members, 2) ]
 			edge_attributes_df = edge_attributes_df.append(pd.DataFrame(group_rows), ignore_index=True).fillna(0)
 		
 		return edge_attributes_df
@@ -194,12 +234,26 @@ class KEGGX:
 
 	#### OUTPUTS ####
 
-	def output_KGML_as_graphml(self, path, detailed=False): 
+	def output_KGML_as_graphml(self, path, display='full'): 
 
 		# Initialize graph from `edge_attributes_df`
-		graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+		if len(self.edge_attributes_df) > 0:
+			graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+		else: 
+			graph = nx.DiGraph()
+
 		# Detailed visualization includes singletons as non-gene or compound nodes, such as orthology, titles, etc.
-		if detailed: graph.add_nodes_from(self.entry_attributes_df.index)
+		if display == 'full': 
+			graph.add_nodes_from(self.entry_attributes_df.index)
+		elif display == 'genes_and_compounds': 
+			pass
+		elif display == 'genes': 
+			graph = nx.DiGraph(graph.subgraph(self.node_attributes_df.index[self.node_attributes_df['type'] == 'gene']))
+
+			inferred_edges_df = self._get_gene_edge_attributes_as_dataframe()
+			inferred_edges_graph = nx.from_pandas_edgelist(inferred_edges_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+
+			graph = nx.compose(graph, inferred_edges_graph)
 
 		nx.set_node_attributes(graph, self.entry_attributes_df.to_dict('index'))
 
@@ -212,10 +266,9 @@ class KEGGX:
 
 		if directed: # how to treat effect = 0, ie when orientation is unknown?
 
-			reverse_edges_df = self.edge_attributes_df[self.edge_attributes_df['effect'].isin([-2,0,2])].rename(columns={ 'source': 'target', 'target': 'source'})
-			bidirected_edge_attributes_df = pd.concat([self.edge_attributes_df, reverse_edges_df])
+			directed_edge_attributes_df = self._get_directed_edge_attributes_as_dataframe(self.edge_attributes_df)
 
-			graph = nx.from_pandas_edgelist(bidirected_edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+			graph = nx.from_pandas_edgelist(directed_edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
 
 		else: 
 			graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True)
