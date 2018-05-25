@@ -102,13 +102,16 @@ class KEGGX:
 			target_nodes = sourced_compounds_df['target'].tolist()
 
 			for source, target in product(source_nodes, target_nodes): 
-				# TODO: This doesn't properly infer A --| compound --> B
-				inferred_edge = self._populate_edge_attributes(source, target, "inferred_rxn", ['activation'])
-				inferred_edges.append(inferred_edge)
+				inferred_edges.append(self._populate_edge_attributes(source, target, "inferred_rxn", ['activation']))
 
-		# TODO: remove compound edges from edge_attributes_df, then append inferred_edges
+		inferred_edges_df = pd.DataFrame(inferred_edges).drop_duplicates()
 
-		return pd.DataFrame(inferred_edges)
+		# Remove duplicated edges, consolidate bidirectional edges
+		edgelist_as_sets = [set(pair) for pair in inferred_edges_df[['source', 'target']].values]
+		inferred_edges_df['effect'] = [edgelist_as_sets.count(pair) for pair in edgelist_as_sets]
+		inferred_edges_df = inferred_edges_df[[False if pair in edgelist_as_sets[:i] else True for i,pair in enumerate(edgelist_as_sets)]]
+
+		return inferred_edges_df
 
 
 	def _populate_edge_attributes(self, source, target, edge_type, interactions): 
@@ -124,7 +127,8 @@ class KEGGX:
 		for interaction in interactions: 
 
 			if   interaction == 'binding/association': edge_attributes.update({ 'effect': 2 })
-			elif interaction == 'protein complex':	   edge_attributes.update({ 'effect': 2 })
+			elif interaction == 'protein complex':	   edge_attributes.update({ 'effect': 2 }) # not standard type, but including for clarity
+			elif interaction == 'bidirected':	   	   edge_attributes.update({ 'effect': 2 }) # not standard type, but including for clarity
 			elif interaction == 'dissociation': 	   edge_attributes.update({ 'effect': 1 })
 			elif interaction == 'missing interaction': edge_attributes.update({ 'effect': 0 })
 			elif interaction == 'indirect effect':     edge_attributes.update({ 'effect': 1, 'indirect': 1 })
