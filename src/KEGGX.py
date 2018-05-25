@@ -5,7 +5,7 @@ import networkx as nx
 
 import xml.etree.ElementTree as ET
 
-from itertools import combinations
+from itertools import combinations, product
 
 
 class KEGGX:
@@ -85,19 +85,30 @@ class KEGGX:
 		return directed_edge_attributes_df
 
 
-	def _get_gene_edge_attributes_as_dataframe(self, edge_attributes_df): 
+	def _get_gene_edge_attributes_as_dataframe(self): 
 
 		compound_ids = self.node_attributes_df[self.node_attributes_df['type'] == 'compound'].index
 
-		directed_edge_attributes_df = self._get_directed_edge_attributes_as_dataframe(edge_attributes_df)
+		directed_edge_attributes_df = self._get_directed_edge_attributes_as_dataframe(self.edge_attributes_df)
 
-		# A --> compound --> B
+		inferred_edges = []
+		oriented_edge_attributes_df = directed_edge_attributes_df[directed_edge_attributes_df['effect'] != 0]
 
-		# A --> compound <-> B
+		for compound_id in compound_ids: 
+			sourced_compounds_df  = oriented_edge_attributes_df[oriented_edge_attributes_df['source'] == compound_id]
+			targeted_compounds_df = oriented_edge_attributes_df[oriented_edge_attributes_df['target'] == compound_id]
 
-		# A <-> compound --> B
+			source_nodes = targeted_compounds_df['source'].tolist()
+			target_nodes = sourced_compounds_df['target'].tolist()
 
-		# A <-> compound <-> B
+			for source, target in product(source_nodes, target_nodes): 
+				# TODO: This doesn't properly infer A --| compound --> B
+				inferred_edge = self._populate_edge_attributes(source, target, "inferred_rxn", ['activation'])
+				inferred_edges.append(inferred_edge)
+
+		# TODO: remove compound edges from edge_attributes_df, then append inferred_edges
+
+		return pd.DataFrame(inferred_edges)
 
 
 	def _populate_edge_attributes(self, source, target, edge_type, interactions): 
@@ -113,6 +124,7 @@ class KEGGX:
 		for interaction in interactions: 
 
 			if   interaction == 'binding/association': edge_attributes.update({ 'effect': 2 })
+			elif interaction == 'protein complex':	   edge_attributes.update({ 'effect': 2 })
 			elif interaction == 'dissociation': 	   edge_attributes.update({ 'effect': 1 })
 			elif interaction == 'missing interaction': edge_attributes.update({ 'effect': 0 })
 			elif interaction == 'indirect effect':     edge_attributes.update({ 'effect': 1, 'indirect': 1 })
@@ -197,6 +209,7 @@ class KEGGX:
 			group_id = group_element.get('id')
 			group_members = [component.get('id') for component in group_element.findall('component')]
 
+			# TODO: Make sure these edges haven't been added yet.
 			# Add edges where `node1` or `node2` is a group member
 			for node_type in ['source', 'target']: 
 				edges_with_df    = edge_attributes_df[edge_attributes_df[node_type] == group_id]
@@ -209,7 +222,7 @@ class KEGGX:
 				edge_attributes_df = pd.concat([expanded_edges_df, edges_without_df]).reset_index(drop=True)
 		
 			# Add edges *between* group members. Complexed proteins are essentially `binding/association`
-			group_rows = [ self._populate_edge_attributes(a, b, 'PComplex', ['binding/association']) for a,b in combinations(group_members, 2) ]
+			group_rows = [ self._populate_edge_attributes(a, b, 'PComplex', ['protein complex']) for a,b in combinations(group_members, 2) ]
 			edge_attributes_df = edge_attributes_df.append(pd.DataFrame(group_rows), ignore_index=True).fillna(0)
 		
 		return edge_attributes_df
@@ -217,15 +230,26 @@ class KEGGX:
 
 	#### OUTPUTS ####
 
-	def output_KGML_as_graphml(self, path, detailed=False): 
+	def output_KGML_as_graphml(self, path, display='full'): 
 
 		# Initialize graph from `edge_attributes_df`
 		if len(self.edge_attributes_df) > 0:
 			graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
 		else: 
 			graph = nx.DiGraph()
+
 		# Detailed visualization includes singletons as non-gene or compound nodes, such as orthology, titles, etc.
-		if detailed: graph.add_nodes_from(self.entry_attributes_df.index)
+		if display == 'full': 
+			graph.add_nodes_from(self.entry_attributes_df.index)
+		elif display == 'genes_and_compounds': 
+			pass
+		elif display == 'genes': 
+			graph = nx.DiGraph(graph.subgraph(self.node_attributes_df.index[self.node_attributes_df['type'] == 'gene']))
+
+			inferred_edges_df = self._get_gene_edge_attributes_as_dataframe()
+			inferred_edges_graph = nx.from_pandas_edgelist(inferred_edges_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+
+			graph = nx.compose(graph, inferred_edges_graph)
 
 		nx.set_node_attributes(graph, self.entry_attributes_df.to_dict('index'))
 
