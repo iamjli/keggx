@@ -128,7 +128,7 @@ class KEGGX:
 			for source, target in product(source_nodes, target_nodes): 
 
 				if (source in self.gene_ids) & (target in self.gene_ids):
-					
+
 					inferred_edges.append(self._populate_edge_attributes(source, target, "inferred_rxn", ['activation']))
 
 		inferred_edges_df = pd.DataFrame(inferred_edges).drop_duplicates()
@@ -287,25 +287,7 @@ class KEGGX:
 		nx.write_graphml(graph, path)
 
 		return graph
-
-
-	# def output_KGML_as_networkx(self, directed=True, gene_only=True): 
-
-	# 	if directed: # how to treat effect = 0, ie when orientation is unknown?
-
-	# 		directed_edge_attributes_df = self._get_directed_edge_attributes_as_dataframe(self.edge_attributes_df)
-
-	# 		graph = nx.from_pandas_edgelist(directed_edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
-
-	# 	else: 
-	# 		graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True)
-
-	# 	nx.set_node_attributes(graph, self.entry_attributes_df.to_dict('index'))
-
-	# 	nx.relabel_nodes(graph, { node_id: graph.node[node_id]['name'] for node_id in graph.nodes() }, copy=False)
-
-	# 	return graph
-
+		
 
 	def output_KGML_as_directed_networkx(self, genes_only=True): 
 
