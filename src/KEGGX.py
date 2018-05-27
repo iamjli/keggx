@@ -31,10 +31,19 @@ class KEGGX:
 		self.node_attributes_df  = self._get_node_attributes_as_dataframe()
 		self.edge_attributes_df  = self._get_edge_attributes_as_dataframe()
 
+		self.gene_ids = self._get_node_attributes_as_dataframe(['gene']).index
+
 
 	#### NODES ####
 
-	def _get_entry_attributes_as_dataframe(self): 
+	def _get_entry_attributes_as_dataframe(self):
+		"""
+		Parse entry elements and store attributes in a dataframe. Entries include all KEGG pathway 
+		elements, incuding maplinks, orthologs, etc.
+
+		Returns: 
+			pandas.DataFrame: entry attributes
+		"""
 
 		entry_type_df     = pd.DataFrame([entry.attrib for entry in self._entries]).drop(columns=['name', 'link'])
 		entry_graphics_df = pd.DataFrame([entry.find('graphics').attrib for entry in self._entries]).rename(columns={'name': 'aliases', 'type': 'shape'})
@@ -47,6 +56,15 @@ class KEGGX:
 
 
 	def _get_node_attributes_as_dataframe(self, types=['gene', 'compound']): 
+		"""
+		Gets entry elements of a particular type.
+
+		Arguments:
+			types (list): element types to keep
+
+		Returns: 
+			pandas.DataFrame
+		"""
 
 		return self.entry_attributes_df[self.entry_attributes_df['type'].isin(types)]
 
@@ -54,11 +72,17 @@ class KEGGX:
 	#### EDGES ####
 
 	def _get_edge_attributes_as_dataframe(self): 
+		"""
+		Logic for converting reaction and relation elements into a dataframe of edge attributes
 
-		# Prioritize reaction edges over relations by populating `edge_attributes` with reaction edges first
+		Returns: 
+			pandas.DataFrame: edge attributes 
+		"""
+
 		edge_attributes_list     = self._get_edge_attributes_from_reactions()
 		relation_attributes_list = self._get_edge_attributes_from_relations()
 
+		# Prioritize reaction edges over relations by populating `edge_attributes` with reaction edges first
 		for relation_attributes in relation_attributes_list: 
 
 			# Get edges in `edge_attributes` as a list of sets
@@ -79,8 +103,8 @@ class KEGGX:
 
 	def _get_directed_edge_attributes_as_dataframe(self, edge_attributes_df): 
 		# If A<-->B, this function splits into two relations: A-->B and B-->A
-		reverse_edges_df = self.edge_attributes_df[self.edge_attributes_df['effect'].isin([-2,0,2])].rename(columns={ 'source': 'target', 'target': 'source'})
-		directed_edge_attributes_df = pd.concat([self.edge_attributes_df, reverse_edges_df])
+		reverse_edges_df = edge_attributes_df[edge_attributes_df['effect'].isin([-2,0,2])].rename(columns={ 'source': 'target', 'target': 'source'})
+		directed_edge_attributes_df = pd.concat([edge_attributes_df, reverse_edges_df])
 
 		return directed_edge_attributes_df
 
@@ -102,7 +126,10 @@ class KEGGX:
 			target_nodes = sourced_compounds_df['target'].tolist()
 
 			for source, target in product(source_nodes, target_nodes): 
-				inferred_edges.append(self._populate_edge_attributes(source, target, "inferred_rxn", ['activation']))
+
+				if (source in self.gene_ids) & (target in self.gene_ids):
+					
+					inferred_edges.append(self._populate_edge_attributes(source, target, "inferred_rxn", ['activation']))
 
 		inferred_edges_df = pd.DataFrame(inferred_edges).drop_duplicates()
 
@@ -262,38 +289,41 @@ class KEGGX:
 		return graph
 
 
-	def output_KGML_as_networkx(self, directed=True): 
+	# def output_KGML_as_networkx(self, directed=True, gene_only=True): 
 
-		if directed: # how to treat effect = 0, ie when orientation is unknown?
+	# 	if directed: # how to treat effect = 0, ie when orientation is unknown?
 
-			directed_edge_attributes_df = self._get_directed_edge_attributes_as_dataframe(self.edge_attributes_df)
+	# 		directed_edge_attributes_df = self._get_directed_edge_attributes_as_dataframe(self.edge_attributes_df)
 
-			graph = nx.from_pandas_edgelist(directed_edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
-
-		else: 
-			graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True)
-
-		nx.set_node_attributes(graph, self.entry_attributes_df.to_dict('index'))
-
-		nx.relabel_nodes(graph, { node_id: graph.node[node_id]['name'] for node_id in graph.nodes() }, copy=False)
-
-		return graph
-
-
-	# def output_KGML_as_networkx(self, directed=False): 
-
-	# 	# Edges with unknown orientation must be reversed and appended to the edge list
-	# 	if directed: 
-	# 		reverse_edges_df = self.edge_attributes_df[self.edge_attributes_df['oriented'] == 0].rename(columns={'source': 'target', 'target': 'source'})
-	# 		bidirected_edge_attributes_df = pd.concat([self.edge_attributes_df, reverse_edges_df])
-
-	# 		graph = nx.from_pandas_edgelist(bidirected_edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+	# 		graph = nx.from_pandas_edgelist(directed_edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
 
 	# 	else: 
 	# 		graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True)
 
-	# 	nx.set_node_attributes(graph, self.node_attributes_df.set_index('id').to_dict('index'))
+	# 	nx.set_node_attributes(graph, self.entry_attributes_df.to_dict('index'))
 
-	# 	nx.relabel_nodes(graph, {node_id: graph.node[node_id]['name'] for node_id in graph.nodes()}, copy=False)
+	# 	nx.relabel_nodes(graph, { node_id: graph.node[node_id]['name'] for node_id in graph.nodes() }, copy=False)
 
 	# 	return graph
+
+
+	def output_KGML_as_directed_networkx(self, genes_only=True): 
+
+		directed_edge_attributes_df = self._get_directed_edge_attributes_as_dataframe(self.edge_attributes_df)
+
+		if genes_only: 
+
+			inferred_edge_attributes_df = self._get_directed_edge_attributes_as_dataframe(self._get_gene_edge_attributes_as_dataframe())
+			directed_edge_attributes_df = pd.concat([directed_edge_attributes_df, inferred_edge_attributes_df])
+
+			graph = nx.from_pandas_edgelist(directed_edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+			graph = nx.DiGraph(graph.subgraph(self.node_attributes_df.index[self.node_attributes_df['type'] == 'gene']))
+
+		else: 
+			
+			graph = nx.from_pandas_edgelist(directed_edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+
+		nx.set_node_attributes(graph, self.entry_attributes_df.to_dict('index'))
+		nx.relabel_nodes(graph, { node_id: graph.node[node_id]['name'] for node_id in graph.nodes() }, copy=False)
+
+		return graph
