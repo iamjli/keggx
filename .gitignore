@@ -4,6 +4,7 @@ data/
 # Testing notebooks
 scripts/test*.ipynb
 scripts/*.graphml
+scripts/test_output/*
 
 # Hidden files
 */.ipynb_checkpoints/*
