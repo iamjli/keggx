@@ -1,5 +1,6 @@
 # Data
-data/
+data/human_KGML/
+data/KEGG_compound_ids.txt
 
 # Testing notebooks
 scripts/test*.ipynb
