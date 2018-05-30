@@ -31,6 +31,8 @@ class KEGGX:
 		self.node_attributes_df  = self._get_node_attributes_as_dataframe()
 		self.edge_attributes_df  = self._get_edge_attributes_as_dataframe()
 
+		self.inferred_edge_attributes_df = self._infer_gene_edges_from_reactions()
+
 		self.gene_ids = self._get_node_attributes_as_dataframe(['gene']).index
 
 
@@ -109,7 +111,7 @@ class KEGGX:
 		return directed_edge_attributes_df
 
 
-	def _get_gene_edge_attributes_as_dataframe(self): 
+	def _infer_gene_edges_from_reactions(self): 
 
 		compound_ids = self.node_attributes_df[self.node_attributes_df['type'] == 'compound'].index
 
@@ -261,41 +263,13 @@ class KEGGX:
 
 	#### OUTPUTS ####
 
-	def output_KGML_as_graphml(self, path, display='full'): 
-
-		# Initialize graph from `edge_attributes_df`
-		if len(self.edge_attributes_df) > 0:
-			graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
-		else: 
-			graph = nx.DiGraph()
-
-		# Detailed visualization includes singletons as non-gene or compound nodes, such as orthology, titles, etc.
-		if display == 'full': 
-			graph.add_nodes_from(self.entry_attributes_df.index)
-		elif display == 'genes_and_compounds': 
-			pass
-		elif display == 'genes': 
-			graph = nx.DiGraph(graph.subgraph(self.node_attributes_df.index[self.node_attributes_df['type'] == 'gene']))
-
-			inferred_edges_df = self._get_gene_edge_attributes_as_dataframe()
-			inferred_edges_graph = nx.from_pandas_edgelist(inferred_edges_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
-
-			graph = nx.compose(graph, inferred_edges_graph)
-
-		nx.set_node_attributes(graph, self.entry_attributes_df.to_dict('index'))
-
-		nx.write_graphml(graph, path)
-
-		return graph
-		
-
 	def output_KGML_as_directed_networkx(self, genes_only=True): 
 
 		directed_edge_attributes_df = self._get_directed_edge_attributes_as_dataframe(self.edge_attributes_df)
 
 		if genes_only: 
 
-			inferred_edge_attributes_df = self._get_directed_edge_attributes_as_dataframe(self._get_gene_edge_attributes_as_dataframe())
+			inferred_edge_attributes_df = self._get_directed_edge_attributes_as_dataframe(self.inferred_edge_attributes_df)
 			directed_edge_attributes_df = pd.concat([directed_edge_attributes_df, inferred_edge_attributes_df])
 
 			graph = nx.from_pandas_edgelist(directed_edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
@@ -309,3 +283,52 @@ class KEGGX:
 		nx.relabel_nodes(graph, { node_id: graph.node[node_id]['name'] for node_id in graph.nodes() }, copy=False)
 
 		return graph
+
+
+	def output_KGML_as_graphml(self, path, visualize='full'): 
+		"""
+		Outputs KGML as graphml for visualization in Cytoscape. There are three visualizations which may be set via
+		the `visualize` argument. 
+
+		Note: 
+			This function is slightly different than writing the output of `self.output_KGML_as_directed_networkx`, which
+			represents bidirectional edges as two distinct directed edges. Furthermore, nodes in `self.output_KGML_as_directed_networkx` 
+			are labeled using their gene symbols. Lastly, `self.output_KGML_as_directed_networkx` does not support full KEGG visualization. 
+
+		Arguments: 
+			path (str): output path
+			visualize (str): specifies visualization mode
+				'full': displays all KEGG entries, including maps, titles, compounds, etc. 
+				'biomolecules': displays only genes and compounds
+				'genes': displays only genes
+
+		Returns: 
+			path
+		"""
+
+		# Initialize graph from `edge_attributes_df`, making sure empty dataframes are initialized properly.
+		if len(self.edge_attributes_df) > 0:
+			graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+		else: 
+			graph = nx.DiGraph()
+
+		# Detailed visualization includes singletons as non-gene or compound nodes, such as orthology, titles, etc.
+		if visualize == 'full': 
+			graph.add_nodes_from(self.entry_attributes_df.index)
+
+		elif visualize == 'biomolecules': pass
+
+		elif visualize == 'genes': 
+			# Create a graph with inferred edges between genes, then add those edges to graph
+			inferred_edges_graph = nx.from_pandas_edgelist(self._infer_gene_edges_from_reactions(), 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+			graph = nx.compose(graph, inferred_edges_graph)
+			# Remove any compound nodes by selecting only genes
+			graph = nx.DiGraph(graph.subgraph(self.node_attributes_df.index[self.node_attributes_df['type'] == 'gene']))
+
+		else: pass
+
+		nx.set_node_attributes(graph, self.entry_attributes_df.to_dict('index'))
+
+		nx.write_graphml(graph, path)
+
+		return path

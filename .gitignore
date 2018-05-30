@@ -8,5 +8,5 @@ scripts/test_output/*
 
 # Hidden files
 */.ipynb_checkpoints/*
-*/.DS_Store
-*/__pycache__/*
+**/.DS_Store
+*/__pycache__/
