@@ -15,7 +15,7 @@ class KEGGX:
 		# Set pathway metadata attributes
 		self.root   = ET.parse(KGML_file).getroot()
 		self.name   = self.root.get('name') 
-		self.org    = self.root.get('org') 
+		self.org	= self.root.get('org') 
 		self.number = self.root.get('number')
 		self.title  = self.root.get('title') 
 		self.link   = self.root.get('link')
@@ -24,16 +24,16 @@ class KEGGX:
 		self._entries   = self.root.findall('entry')
 		self._reactions = self.root.findall('reaction')
 		self._relations = self.root.findall('relation')
-		self._groups    = self.root.findall('.//entry[@type="group"]')
+		self._groups	= self.root.findall('.//entry[@type="group"]')
 
 
 		self.entry_attributes_df = self._get_entry_attributes_as_dataframe()
 		self.node_attributes_df  = self._get_node_attributes_as_dataframe()
 		self.edge_attributes_df  = self._get_edge_attributes_as_dataframe()
 
+		self.gene_ids = self._get_node_attributes_as_dataframe(['gene']).index
 		self.inferred_edge_attributes_df = self._infer_gene_edges_from_reactions()
 
-		self.gene_ids = self._get_node_attributes_as_dataframe(['gene']).index
 
 
 	#### NODES ####
@@ -47,7 +47,7 @@ class KEGGX:
 			pandas.DataFrame: entry attributes
 		"""
 
-		entry_type_df     = pd.DataFrame([entry.attrib for entry in self._entries]).drop(columns=['name', 'link'])
+		entry_type_df	 = pd.DataFrame([entry.attrib for entry in self._entries]).drop(columns=['name', 'link'])
 		entry_graphics_df = pd.DataFrame([entry.find('graphics').attrib for entry in self._entries]).rename(columns={'name': 'aliases', 'type': 'shape'})
 
 		entry_attributes_df = pd.concat([entry_type_df, entry_graphics_df], axis=1).fillna("")
@@ -81,7 +81,7 @@ class KEGGX:
 			pandas.DataFrame: edge attributes 
 		"""
 
-		edge_attributes_list     = self._get_edge_attributes_from_reactions()
+		edge_attributes_list	 = self._get_edge_attributes_from_reactions()
 		relation_attributes_list = self._get_edge_attributes_from_relations()
 
 		# Prioritize reaction edges over relations by populating `edge_attributes` with reaction edges first
@@ -160,7 +160,7 @@ class KEGGX:
 			elif interaction == 'bidirected':	   	   edge_attributes.update({ 'effect': 2 }) # not standard type, but including for clarity
 			elif interaction == 'dissociation': 	   edge_attributes.update({ 'effect': 1 })
 			elif interaction == 'missing interaction': edge_attributes.update({ 'effect': 0 })
-			elif interaction == 'indirect effect':     edge_attributes.update({ 'effect': 1, 'indirect': 1 })
+			elif interaction == 'indirect effect':	 edge_attributes.update({ 'effect': 1, 'indirect': 1 })
 			else: pass
 
 		for interaction in interactions: 
@@ -245,7 +245,7 @@ class KEGGX:
 			# TODO: Make sure these edges haven't been added yet.
 			# Add edges where `node1` or `node2` is a group member
 			for node_type in ['source', 'target']: 
-				edges_with_df    = edge_attributes_df[edge_attributes_df[node_type] == group_id]
+				edges_with_df	= edge_attributes_df[edge_attributes_df[node_type] == group_id]
 				edges_without_df = edge_attributes_df[edge_attributes_df[node_type] != group_id]
 				# Duplicate rows where `node1` contains the `group_id`
 				expanded_edges_df = pd.concat([edges_with_df]*len(group_members)).sort_index() 
@@ -332,3 +332,19 @@ class KEGGX:
 		nx.write_graphml(graph, path)
 
 		return path
+
+
+def output_DiGraph_as_graphml(graph, path): 
+	"""
+	Removes bidirectional edges from networkx DiGraph for visualization in Cytoscape. 
+	"""
+
+	graph_out = graph.copy()
+
+	# For an edge A-->B in the graph, if B-->A is also in the graph, remove A-->B
+	for source,target in list(graph_out.edges): 
+		if graph_out.has_edge(target, source): graph_out.remove_edge(source, target)
+
+	nx.write_graphml(graph, path)
+
+	return path
