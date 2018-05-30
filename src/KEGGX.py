@@ -281,6 +281,7 @@ class KEGGX:
 
 		nx.set_node_attributes(graph, self.entry_attributes_df.to_dict('index'))
 		nx.relabel_nodes(graph, { node_id: graph.node[node_id]['name'] for node_id in graph.nodes() }, copy=False)
+		graph.name = self.name
 
 		return graph
 
@@ -315,8 +316,10 @@ class KEGGX:
 		# Detailed visualization includes singletons as non-gene or compound nodes, such as orthology, titles, etc.
 		if visualize == 'full': 
 			graph.add_nodes_from(self.entry_attributes_df.index)
+			graph.name = self.name + '_full_KEGG'
 
-		elif visualize == 'biomolecules': pass
+		elif visualize == 'biomolecules': 
+			graph.name = self.name + '_genes_compounds'
 
 		elif visualize == 'genes': 
 			# Create a graph with inferred edges between genes, then add those edges to graph
@@ -324,6 +327,7 @@ class KEGGX:
 			graph = nx.compose(graph, inferred_edges_graph)
 			# Remove any compound nodes by selecting only genes
 			graph = nx.DiGraph(graph.subgraph(self.node_attributes_df.index[self.node_attributes_df['type'] == 'gene']))
+			graph.name = self.name + '_genes_only'
 
 		else: pass
 
