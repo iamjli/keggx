@@ -26,12 +26,15 @@ class KEGGX:
 		self._relations = self.root.findall('relation')
 		self._groups	= self.root.findall('.//entry[@type="group"]')
 
+		# DataFrame columns
+		self.node_columns = ['id', 'name', 'aliases', 'type', 'x', 'y', 'height', 'width', 'shape', 'bgcolor', 'fgcolor']
+		self.edge_columns = ['source', 'target', 'effect', 'indirect', 'modification', 'type']
 
+		# Graph attribute DataFrames
 		self.entry_attributes_df = self._get_entry_attributes_as_dataframe()
 		self.node_attributes_df  = self._get_node_attributes_as_dataframe()
 		self.edge_attributes_df  = self._get_edge_attributes_as_dataframe()
 
-		self.gene_ids = self._get_node_attributes_as_dataframe(['gene']).index
 		self.inferred_edge_attributes_df = self._infer_gene_edges_from_reactions()
 
 
@@ -52,7 +55,7 @@ class KEGGX:
 
 		entry_attributes_df = pd.concat([entry_type_df, entry_graphics_df], axis=1).fillna("")
 		entry_attributes_df['name'] = entry_attributes_df['aliases'].apply(lambda x: x.split(', ')[0].rstrip('.'))
-		entry_attributes_df = entry_attributes_df[['id', 'name', 'aliases', 'type', 'x', 'y', 'height', 'width', 'shape', 'bgcolor', 'fgcolor']].set_index('id')
+		entry_attributes_df = entry_attributes_df[self.node_columns].set_index('id')
 
 		return entry_attributes_df
 
@@ -96,15 +99,16 @@ class KEGGX:
 				edge_attributes_list.append(relation_attributes)
 
 		# Convert to DataFrame and replace group edges 
-		edge_attributes_df = pd.DataFrame(edge_attributes_list)
+		edge_attributes_df = pd.DataFrame(edge_attributes_list, columns=self.edge_columns)
 		edge_attributes_df = self._replace_group_edges(edge_attributes_df)
-		if len(edge_attributes_df) > 0: edge_attributes_df = edge_attributes_df[['source', 'target', 'effect', 'indirect', 'modification', 'type']]
 
 		return edge_attributes_df
 
 
 	def _get_directed_edge_attributes_as_dataframe(self, edge_attributes_df): 
 		# If A<-->B, this function splits into two relations: A-->B and B-->A
+		if len(edge_attributes_df) == 0: return edge_attributes_df
+
 		reverse_edges_df = edge_attributes_df[edge_attributes_df['effect'].isin([-2,0,2])].rename(columns={ 'source': 'target', 'target': 'source'})
 		directed_edge_attributes_df = pd.concat([edge_attributes_df, reverse_edges_df])
 
@@ -129,11 +133,9 @@ class KEGGX:
 
 			for source, target in product(source_nodes, target_nodes): 
 
-				if (source in self.gene_ids) & (target in self.gene_ids):
+				inferred_edges.append(self._populate_edge_attributes(source, target, "inferred_rxn", ['activation']))
 
-					inferred_edges.append(self._populate_edge_attributes(source, target, "inferred_rxn", ['activation']))
-
-		inferred_edges_df = pd.DataFrame(inferred_edges).drop_duplicates()
+		inferred_edges_df = pd.DataFrame(inferred_edges, columns=self.edge_columns).drop_duplicates()
 
 		# Remove duplicated edges, consolidate bidirectional edges
 		edgelist_as_sets = [set(pair) for pair in inferred_edges_df[['source', 'target']].values]
@@ -160,7 +162,7 @@ class KEGGX:
 			elif interaction == 'bidirected':	   	   edge_attributes.update({ 'effect': 2 }) # not standard type, but including for clarity
 			elif interaction == 'dissociation': 	   edge_attributes.update({ 'effect': 1 })
 			elif interaction == 'missing interaction': edge_attributes.update({ 'effect': 0 })
-			elif interaction == 'indirect effect':	 edge_attributes.update({ 'effect': 1, 'indirect': 1 })
+			elif interaction == 'indirect effect':	   edge_attributes.update({ 'effect': 1, 'indirect': 1 })
 			else: pass
 
 		for interaction in interactions: 
@@ -256,7 +258,7 @@ class KEGGX:
 		
 			# Add edges *between* group members. Complexed proteins are essentially `binding/association`
 			group_rows = [ self._populate_edge_attributes(a, b, 'PComplex', ['protein complex']) for a,b in combinations(group_members, 2) ]
-			edge_attributes_df = edge_attributes_df.append(pd.DataFrame(group_rows), ignore_index=True).fillna(0)
+			edge_attributes_df = edge_attributes_df.append(pd.DataFrame(group_rows, columns=self.edge_columns), ignore_index=True).fillna(0)
 		
 		return edge_attributes_df
 
@@ -341,6 +343,13 @@ class KEGGX:
 def output_DiGraph_as_graphml(graph, path): 
 	"""
 	Removes bidirectional edges from networkx DiGraph for visualization in Cytoscape. 
+
+	Arguments: 
+		graph (networkx.DiGraph): any instance of networkx.Graph
+		path (str): output path
+
+	Returns: 
+		path
 	"""
 
 	graph_out = graph.copy()
