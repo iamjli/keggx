@@ -6,14 +6,22 @@ import networkx as nx
 import xml.etree.ElementTree as ET
 
 from itertools import combinations, product
+from os.path import join, dirname, exists
 
 
 class KEGGX:
 
-	def __init__(self, KGML_file):
+	def __init__(self, KGML_file, compound_file=None):
+
+		# File paths
+		self.KGML_file = KGML_file
+		self.compound_file = compound_file
+		# Set default compound file if argument is not set
+		default_compound_file = join(dirname(self.KGML_file), 'KEGG_compound_ids.txt')
+		if (compound_file is None) and (exists(default_compound_file)): self.compound_file = default_compound_file
 
 		# Set pathway metadata attributes
-		self.root   = ET.parse(KGML_file).getroot()
+		self.root   = ET.parse(self.KGML_file).getroot()
 		self.name   = self.root.get('name') 
 		self.org	= self.root.get('org') 
 		self.number = self.root.get('number')
@@ -56,6 +64,17 @@ class KEGGX:
 		entry_attributes_df = pd.concat([entry_type_df, entry_graphics_df], axis=1).fillna("")
 		entry_attributes_df['name'] = entry_attributes_df['aliases'].apply(lambda x: x.split(', ')[0].rstrip('.'))
 		entry_attributes_df = entry_attributes_df[self.node_columns].set_index('id')
+
+		# Check if compound path exists: 
+		if True: 
+			compound_ids = pd.read_csv(self.compound_file, names=['name', 'aliases'], sep='\t')
+			compound_ids.index = compound_ids['name'].apply(lambda x: x.split(':')[1])
+			compound_ids['name'] = compound_ids['aliases'].apply(lambda x: x.split(';')[0])
+
+			compound_rows = entry_attributes_df['name'].isin(compound_ids.index)
+			entry_attributes_df.loc[compound_rows, ['name', 'aliases']] = compound_ids.loc[entry_attributes_df[compound_rows]['name']].values
+
+			# entry_attributes_df[entry_attributes_df['name'].isin(compound_ids.index)]['name'].apply(lambda x: compound_ids.loc[x])
 
 		return entry_attributes_df
 
@@ -286,6 +305,15 @@ class KEGGX:
 		graph.name = self.name
 
 		return graph
+
+
+	def get_directed_edges_from_KGML(self, genes_only=True): 
+
+		graph = self.output_KGML_as_directed_networkx(genes_only)
+		edge_attributes_df = nx.to_pandas_edgelist(graph)
+		edge_attributes_df['pathway'] = self.name
+
+		return edge_attributes_df
 
 
 	def output_KGML_as_graphml(self, path, visualize='full'): 
