@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
     name='KEGGX',
     packages=['KEGGX'],
-    package_dir={'KEGGX': 'src'},
+    package_dir={'KEGGX': 'KEGGX'},
     include_package_data=True,
     version='0.1.0',
     url='https://github.com/iamjli/KEGGX',

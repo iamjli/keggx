@@ -1,3 +1,7 @@
+# Data
+data/human_KGML
+data/reactome
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
