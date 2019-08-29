@@ -1,11 +1,14 @@
+venv/
+
 # Data
 data/human_KGML/
+data/reactome/
 data/KEGG_compound_ids.txt
 
 # Testing notebooks
-scripts/test*.ipynb
-scripts/*.graphml
-scripts/test_output/*
+notebooks/test*.ipynb
+notebooks/*.graphml
+notebooks/test_output/*
 
 # Hidden files
 **/.ipynb_checkpoints/

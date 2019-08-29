@@ -386,6 +386,6 @@ def output_DiGraph_as_graphml(graph, path):
 	for source,target in list(graph_out.edges): 
 		if graph_out.has_edge(target, source): graph_out.remove_edge(source, target)
 
-	nx.write_graphml(graph, path)
+	nx.write_graphml(graph_out, path)
 
 	return path
