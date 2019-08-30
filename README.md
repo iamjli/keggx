@@ -6,4 +6,4 @@ See [notebooks/example.ipynb](https://github.com/iamjli/KEGGX/blob/master/notebo
 
 # Install
 
-`pip install KEGGX`
+`pip install keggx`
