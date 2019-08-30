@@ -7,7 +7,6 @@ import networkx as nx
 import xml.etree.ElementTree as ET
 
 from itertools import combinations, product
-from os.path import join, dirname, exists
 import pkg_resources
 
 import matplotlib
