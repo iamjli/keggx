@@ -1,5 +1,9 @@
-numpy==1.12.0
-pandas==0.19.2
+numpy>=1.13.3
+pandas>=0.24.0
 statsmodels==0.8.0
 matplotlib==2.0.0
-ipython==6.2.1
+seaborn
+
+# notebook
+jupyter==1.0.0
+ipython==7.1.1

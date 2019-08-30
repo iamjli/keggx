@@ -1,27 +1,37 @@
 #!/usr/bin/env python3
 
+import numpy as np
 import pandas as pd
 import networkx as nx
 
 import xml.etree.ElementTree as ET
 
 from itertools import combinations, product
-from os.path import join, dirname, exists
+import pkg_resources
+
+import matplotlib
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from .draw import Node, set_grid, shortest_arrow
 
 
-class KEGGX:
+KEGG_COMPOUND_FILE = pkg_resources.resource_filename('keggx', 'KEGG_compound_ids.txt')
 
-	def __init__(self, KGML_file, compound_file=None):
 
-		# File paths
-		self.KGML_file = KGML_file
-		self.compound_file = compound_file
-		# Set default compound file if argument is not set
-		default_compound_file = join(dirname(self.KGML_file), 'KEGG_compound_ids.txt')
-		if (compound_file is None) and (exists(default_compound_file)): self.compound_file = default_compound_file
+class KEGG:
+
+	def __init__(self, pathway_id=None, KGML_file=None):
 
 		# Set pathway metadata attributes
-		self.root   = ET.parse(self.KGML_file).getroot()
+		if pathway_id is not None: 
+			import requests
+			self.root = ET.fromstring(requests.get('http://rest.kegg.jp/get/{}/kgml'.format(pathway_id)).text)
+		elif KGML_file is not None:
+			self.root = ET.parse(KGML_file).getroot()
+		else: 
+			print('Need to specify `pathway_id` or `KGML_file`.')
+
 		self.name   = self.root.get('name') 
 		self.org	= self.root.get('org') 
 		self.number = self.root.get('number')
@@ -45,6 +55,11 @@ class KEGGX:
 
 		self.inferred_edge_attributes_df = self._infer_gene_edges_from_reactions()
 
+		# Create graph
+		self.G_kegg = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+		self.G_kegg.add_nodes_from(self.entry_attributes_df.index)
+		nx.set_node_attributes(self.G_kegg, self.entry_attributes_df.to_dict('index'))
+
 
 
 	#### NODES ####
@@ -58,16 +73,17 @@ class KEGGX:
 			pandas.DataFrame: entry attributes
 		"""
 
-		entry_type_df	 = pd.DataFrame([entry.attrib for entry in self._entries]).drop(columns=['name', 'link'])
+		entry_type_df	  = pd.DataFrame([entry.attrib for entry in self._entries]).drop(columns=['name', 'link'], errors='ignore')
 		entry_graphics_df = pd.DataFrame([entry.find('graphics').attrib for entry in self._entries]).rename(columns={'name': 'aliases', 'type': 'shape'})
 
-		entry_attributes_df = pd.concat([entry_type_df, entry_graphics_df], axis=1).fillna("")
+		entry_attributes_df = pd.concat([entry_type_df, entry_graphics_df], axis=1)
+		entry_attributes_df['aliases'].fillna('', inplace=True)
 		entry_attributes_df['name'] = entry_attributes_df['aliases'].apply(lambda x: x.split(', ')[0].rstrip('.'))
 		entry_attributes_df = entry_attributes_df[self.node_columns].set_index('id')
 
 		# Check if compound path exists: 
 		if True: 
-			compound_ids = pd.read_csv(self.compound_file, names=['name', 'aliases'], sep='\t')
+			compound_ids = pd.read_csv(KEGG_COMPOUND_FILE, names=['name', 'aliases'], sep='\t')
 			compound_ids.index = compound_ids['name'].apply(lambda x: x.split(':')[1])
 			compound_ids['name'] = compound_ids['aliases'].apply(lambda x: x.split(';')[0])
 
@@ -75,6 +91,8 @@ class KEGGX:
 			entry_attributes_df.loc[compound_rows, ['name', 'aliases']] = compound_ids.loc[entry_attributes_df[compound_rows]['name']].values
 
 			# entry_attributes_df[entry_attributes_df['name'].isin(compound_ids.index)]['name'].apply(lambda x: compound_ids.loc[x])
+
+		entry_attributes_df[['x', 'y', 'height', 'width']] = entry_attributes_df[['x', 'y', 'height', 'width']].astype(float)
 
 		return entry_attributes_df
 
@@ -129,7 +147,7 @@ class KEGGX:
 		if len(edge_attributes_df) == 0: return edge_attributes_df
 
 		reverse_edges_df = edge_attributes_df[edge_attributes_df['effect'].isin([-2,0,2])].rename(columns={ 'source': 'target', 'target': 'source'})
-		directed_edge_attributes_df = pd.concat([edge_attributes_df, reverse_edges_df])
+		directed_edge_attributes_df = pd.concat([edge_attributes_df, reverse_edges_df], sort=False)
 
 		return directed_edge_attributes_df
 
@@ -284,6 +302,10 @@ class KEGGX:
 
 	#### OUTPUTS ####
 
+	def output_KGML_as_full_networkx(self): 
+
+		pass
+
 	def output_KGML_as_directed_networkx(self, genes_only=True): 
 
 		directed_edge_attributes_df = self._get_directed_edge_attributes_as_dataframe(self.edge_attributes_df)
@@ -339,7 +361,7 @@ class KEGGX:
 
 		# Initialize graph from `edge_attributes_df`, making sure empty dataframes are initialized properly.
 		if len(self.edge_attributes_df) > 0:
-			graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+			graph = nx.from_pandas_edgelist(self.edge_attributes_df.fillna(''), 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
 		else: 
 			graph = nx.DiGraph()
 
@@ -366,6 +388,78 @@ class KEGGX:
 		nx.write_graphml(graph, path)
 
 		return path
+
+
+	## VISUALIZE
+
+	def view(self, scale=1, show_compounds=False, gene_values=None): 
+
+		entry_attributes_df = self.entry_attributes_df.replace('', np.nan).dropna(subset=['name'])
+
+		fig, ax = set_grid(
+			xlim = entry_attributes_df.x.agg([np.min, np.max]).tolist(), 
+			ylim = entry_attributes_df.y.agg([np.min, np.max]).tolist(), 
+			scale = scale
+		)
+
+		# Render node shapes
+		if gene_values is not None: 
+			# Lookup list of colors
+			hex_lookup = [color for color in sns.color_palette("coolwarm", 256).as_hex()] + ['#b3b3b3']
+			# Get lookup index based on gene value and map to gene colors
+			gene_values = gene_values.reindex(entry_attributes_df['name'].unique())
+			rgb_indices = ((gene_values / gene_values.abs().max() + 1) / 2 * 255).fillna(-1).astype(int)
+			gene_colors = { node:hex_lookup[idx] for node,idx in rgb_indices.iteritems() }
+
+		nodes_dic = {node_id:Node(attribs) for node_id,attribs in entry_attributes_df.to_dict('index').items()}
+		for node_id,node in nodes_dic.items(): 
+			if node.shape == 'circle': 
+				ax.add_patch(matplotlib.patches.Circle(xy=node.center, radius=node.width/2, color='k', fill=False))
+				if show_compounds: 
+					ax.text(x=node.anchor[0], y=node.anchor[1]+1, s=node.name, fontsize = 6 * scale, ha='center', va='center')
+			elif node.shape == 'roundrectangle': 
+				ax.add_patch(matplotlib.patches.Rectangle(xy=node.anchor, width=node.width, height=node.height, color='grey', fill=True))
+				ax.text(x=node.center[0], y=node.center[1]+1, s=node.name[6:] if node.name.startswith('TITLE:') else node.name, fontsize = 6 * scale, ha='center', va='center', wrap=True)
+			else: 
+				# ax.add_patch(matplotlib.patches.Rectangle(xy=node.anchor, width=node.width, height=node.height, color='k', fill=False))
+				if gene_values is not None: 
+					facecolor = gene_colors[node.name]
+				else: 
+					facecolor = '#b3b3b3'
+
+				ax.add_patch(matplotlib.patches.Rectangle(xy=node.anchor, width=node.width, height=node.height, ec='k', fc=facecolor))
+				ax.text(x=node.center[0], y=node.center[1]+1, s=node.name, fontsize = 6 * scale, ha='center', va='center')
+
+
+		# Render edges
+		for _,edge_attribs in self.edge_attributes_df.iterrows(): 
+			# Get source and target positions for arrow
+			source_pos, target_pos = shortest_arrow(nodes_dic[edge_attribs['source']], nodes_dic[edge_attribs['target']])
+
+
+			arrowprops = dict(color='k')
+			if edge_attribs['indirect'] == 1: arrowprops['linestyle'] = '--'
+			elif edge_attribs['indirect'] == 0: arrowprops['linestyle'] = '-'
+			else: arrowprops['linestyle'] = '-'
+
+			if edge_attribs['effect'] == 1:
+				arrowprops['arrowstyle'] = '-|>'
+			elif edge_attribs['effect'] == 2: 
+				arrowprops['arrowstyle'] = '<|-|>'
+			elif edge_attribs['effect'] == -1: 
+				arrowprops['arrowstyle'] = '|-|, widthA=0, widthB=0.5'
+				arrowprops['shrinkB'] = 10
+			else: 
+				arrowprops['arrowstyle'] = '-'
+
+			arrow = ax.annotate('', xy=target_pos, xytext=source_pos, arrowprops=arrowprops)
+
+			# Arrow modification annotation
+			if edge_attribs['modification'] != '': 
+				midpoint = (source_pos + target_pos) / 2
+				ax.text(x=midpoint[0], y=midpoint[1] - 5, s=edge_attribs['modification'], color='red', ha='center', va='center', fontsize=6*scale)
+
+		return fig, ax
 
 
 def output_DiGraph_as_graphml(graph, path): 
