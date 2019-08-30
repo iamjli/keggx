@@ -6,7 +6,7 @@ setup(
     package_dir={'keggx': 'keggx'},
     package_data={'keggx': ['KEGG_compound_ids.txt']},
     include_package_data=True,
-    version='0.1.0',
+    version='0.1.2',
     url='https://github.com/iamjli/keggx',
     python_requires='>=3.5',
     classifiers=[
@@ -21,7 +21,7 @@ setup(
         "pandas>=0.20.1", 
         "numpy>=1.12.0",
         "networkx>=2.0",
-        "matplotlib==2.0.0", 
+        "matplotlib", 
         "seaborn", 
         "requests"
     ]
