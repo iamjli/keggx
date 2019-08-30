@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 
 from itertools import combinations, product
 from os.path import join, dirname, exists
-
+import pkg_resources
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -17,19 +17,22 @@ import seaborn as sns
 from .draw import Node, set_grid, shortest_arrow
 
 
+KEGG_COMPOUND_FILE = pkg_resources.resource_filename('KEGGX', 'KEGG_compound_ids.txt')
+
+
 class KEGGX:
 
-	def __init__(self, KGML_file, compound_file='../data/KEGG_compound_ids.txt'):
-
-		# File paths
-		self.KGML_file = KGML_file
-		self.compound_file = compound_file
-		# Set default compound file if argument is not set
-		default_compound_file = join(dirname(self.KGML_file), 'KEGG_compound_ids.txt')
-		if (compound_file is None) and (exists(default_compound_file)): self.compound_file = default_compound_file
+	def __init__(self, pathway_id=None, KGML_file=None):
 
 		# Set pathway metadata attributes
-		self.root   = ET.parse(self.KGML_file).getroot()
+		if pathway_id is not None: 
+			import requests
+			self.root = ET.fromstring(requests.get('http://rest.kegg.jp/get/{}/kgml'.format(pathway_id)).text)
+		elif KGML_file is not None:
+			self.root = ET.parse(KGML_file).getroot()
+		else: 
+			print('Need to specify `pathway_id` or `KGML_file`.')
+
 		self.name   = self.root.get('name') 
 		self.org	= self.root.get('org') 
 		self.number = self.root.get('number')
@@ -80,7 +83,7 @@ class KEGGX:
 
 		# Check if compound path exists: 
 		if True: 
-			compound_ids = pd.read_csv(self.compound_file, names=['name', 'aliases'], sep='\t')
+			compound_ids = pd.read_csv(KEGG_COMPOUND_FILE, names=['name', 'aliases'], sep='\t')
 			compound_ids.index = compound_ids['name'].apply(lambda x: x.split(':')[1])
 			compound_ids['name'] = compound_ids['aliases'].apply(lambda x: x.split(';')[0])
 
@@ -389,7 +392,7 @@ class KEGGX:
 
 	## VISUALIZE
 
-	def view(self, scale=1, show_compounds=True, gene_values=None): 
+	def view(self, scale=1, show_compounds=False, gene_values=None): 
 
 		entry_attributes_df = self.entry_attributes_df.replace('', np.nan).dropna(subset=['name'])
 

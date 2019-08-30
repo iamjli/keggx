@@ -2,6 +2,9 @@
 data/human_KGML
 data/reactome
 
+# Notebooks
+notebooks/compare_pathwayX.ipynb
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

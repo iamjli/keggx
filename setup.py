@@ -4,6 +4,7 @@ setup(
     name='KEGGX',
     packages=['KEGGX'],
     package_dir={'KEGGX': 'KEGGX'},
+    package_data={'KEGGX': ['KEGG_compound_ids.txt']},
     include_package_data=True,
     version='0.1.0',
     url='https://github.com/iamjli/KEGGX',
@@ -20,5 +21,8 @@ setup(
         "pandas>=0.20.1", 
         "numpy>=1.12.0",
         "networkx>=2.0",
+        "matplotlib==2.0.0", 
+        "seaborn", 
+        "requests"
     ]
 )
