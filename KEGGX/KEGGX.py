@@ -16,10 +16,10 @@ import seaborn as sns
 from .draw import Node, set_grid, shortest_arrow
 
 
-KEGG_COMPOUND_FILE = pkg_resources.resource_filename('KEGGX', 'KEGG_compound_ids.txt')
+KEGG_COMPOUND_FILE = pkg_resources.resource_filename('keggx', 'KEGG_compound_ids.txt')
 
 
-class KEGGX:
+class KEGG:
 
 	def __init__(self, pathway_id=None, KGML_file=None):
 
@@ -73,10 +73,11 @@ class KEGGX:
 			pandas.DataFrame: entry attributes
 		"""
 
-		entry_type_df	 = pd.DataFrame([entry.attrib for entry in self._entries]).drop(columns=['name', 'link'])
+		entry_type_df	  = pd.DataFrame([entry.attrib for entry in self._entries]).drop(columns=['name', 'link'], errors='ignore')
 		entry_graphics_df = pd.DataFrame([entry.find('graphics').attrib for entry in self._entries]).rename(columns={'name': 'aliases', 'type': 'shape'})
 
-		entry_attributes_df = pd.concat([entry_type_df, entry_graphics_df], axis=1).fillna("")
+		entry_attributes_df = pd.concat([entry_type_df, entry_graphics_df], axis=1)
+		entry_attributes_df['aliases'].fillna('', inplace=True)
 		entry_attributes_df['name'] = entry_attributes_df['aliases'].apply(lambda x: x.split(', ')[0].rstrip('.'))
 		entry_attributes_df = entry_attributes_df[self.node_columns].set_index('id')
 
@@ -360,7 +361,7 @@ class KEGGX:
 
 		# Initialize graph from `edge_attributes_df`, making sure empty dataframes are initialized properly.
 		if len(self.edge_attributes_df) > 0:
-			graph = nx.from_pandas_edgelist(self.edge_attributes_df, 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
+			graph = nx.from_pandas_edgelist(self.edge_attributes_df.fillna(''), 'source', 'target', edge_attr=True, create_using=nx.DiGraph())
 		else: 
 			graph = nx.DiGraph()
 
