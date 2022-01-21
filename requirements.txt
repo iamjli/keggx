@@ -6,4 +6,4 @@ seaborn
 
 # notebook
 jupyter==1.0.0
-ipython==7.1.1
+ipython==7.16.3
